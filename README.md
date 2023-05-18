@@ -1,7 +1,9 @@
 <div align="center">
 
 <h1>What is this?</h1>
-Fork of RVC for /ppp/ use. WebUIs not compatible.
+Fork of RVC for /ppp/ use. WebUIs not compatible. Works similarly to so-vits-svc
+4.0 fork, with model folders being placed under `models` containing the weight
+pth and feature index file(s).
 
 <h1>Retrieval-based-Voice-Conversion-WebUI</h1>
 一个基于VITS的简单易用的语音转换（变声器）框架<br><br>
