@@ -4,19 +4,20 @@ from multiprocessing import cpu_count
 
 
 class Config:
-    def __init__(self):
+    def __init__(self, do_argparse=True):
         self.device = "cuda:0"
         self.is_half = True
         self.n_cpu = 0
         self.gpu_name = None
         self.gpu_mem = None
-        (
-            self.python_cmd,
-            self.listen_port,
-            self.iscolab,
-            self.noparallel,
-            self.noautoopen,
-        ) = self.arg_parse()
+        if do_argparse:
+            (
+                self.python_cmd,
+                self.listen_port,
+                self.iscolab,
+                self.noparallel,
+                self.noautoopen,
+            ) = self.arg_parse()
         self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
 
     @staticmethod
