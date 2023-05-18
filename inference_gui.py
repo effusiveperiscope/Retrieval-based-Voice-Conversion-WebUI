@@ -41,7 +41,7 @@ from infer_pack.models import (SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono)
 
 MODELS_DIR = "models"
-F0_METHODS = ["pm","harvest"]
+F0_METHODS = ["harvest","pm"]
 RECORD_DIR = "./recordings"
 RECORD_SHORTCUT = "ctrl+shift+r"
 JSON_NAME = "inference_gui_rvc_persist.json"
@@ -68,10 +68,11 @@ def get_voices():
             cur_speaker = {}
 
             # The G_ and D_ files should NOT be included in this
-            gen = glob.glob(os.path.join(MODELS_DIR,'G_*.pth'))
-            disc = glob.glob(os.path.join(MODELS_DIR,'D_*.pth'))
+            gen = glob.glob(os.path.join(MODELS_DIR,folder,'G_*.pth'))
+            disc = glob.glob(os.path.join(MODELS_DIR,folder,'D_*.pth'))
 
-            wt = [x for x in glob.glob(os.path.join(MODELS_DIR,'*.pth'))
+            wt = [x for x in glob.glob(
+                os.path.join(MODELS_DIR, folder,'*.pth'))
                 if (x not in gen) and (x not in disc)]
             if not len(wt):
                 print("Skipping "+folder+", no *.pth (weight file)")
@@ -80,8 +81,10 @@ def get_voices():
             cur_speaker["weight_path"] = wt[0]
             cur_speaker["model_folder"] = folder
 
-            feature_index = glob.glob(os.path.join(MODELS_DIR,'*.index'))
-            feature_file = glob.glob(os.path.join(MODELS_DIR,'*.npy'))
+            feature_index = glob.glob(os.path.join(
+                MODELS_DIR,folder,'*.index'))
+            feature_file = glob.glob(os.path.join(
+                MODELS_DIR,folder,'*.npy'))
             if (not len(feature_index)) and (not len (feature_file)):
                 print("Note: No feature search files found for "+folder)
                 continue
@@ -641,7 +644,7 @@ class InferenceGui(QMainWindow):
         self.audio_recorder_and_plugins = AudioRecorderAndVSTs(self)
         self.layout.addWidget(self.audio_recorder_and_plugins)
 
-        if len(self.weights):
+        if len(self.voices):
             self.try_load_speaker(0)
 
     def recent_dir_dialog(self, index):
@@ -687,12 +690,13 @@ class InferenceGui(QMainWindow):
         if not "weight_path" in self.model_state:
             return
         weight_path = self.model_state["weight_path"]
+        print(weight_path)
         if not weight_path in self.feature_file_maps:
             return
-        self.feature_search_button.files[0] = self.feature_file_maps[
-            weight_path]["file_index"]
-        self.feature_file_button.files[0] = self.feature_file_maps[
-            weight_path]["file_big_npy"]
+        self.feature_search_button.files = [self.feature_file_maps[
+            weight_path]["file_index"]]
+        self.feature_file_button.files = [self.feature_file_maps[
+            weight_path]["file_big_npy"]]
 
     def save_persist(self):
         with open(JSON_NAME, "w") as f:
@@ -754,7 +758,9 @@ class InferenceGui(QMainWindow):
         res_paths = []
 
         for idx,o in enumerate(outputs):
-            weight_name = self.model_state["weight_path"].split('.')[0]
+            weight_name = (
+                self.model_state["weight_path"].split(os.path.sep)[-1]
+                .split('.')[0])
             sr, opt = o
 
             i = 1
@@ -768,7 +774,7 @@ class InferenceGui(QMainWindow):
                     f'{weight_name}{i}.wav')
                 i += 1
 
-            wavfile.write(res_path, sr, opt)
+            wavfile.write(os.path.abspath(res_path), sr, opt)
             res_paths.append(res_path)
 
         if PYGAME_AVAILABLE and self.mic_state:
@@ -827,17 +833,23 @@ class InferenceGui(QMainWindow):
                 file_big_npy = file_big_npy.strip(" ").strip('"').strip("\n"
                     ).strip('"').strip(" ") 
             audio_opt = self.model_state["vc"].pipeline(
-                self.hubert_model, # same
-                self.model_state["net_g"], # same
-                sid, # same
-                audio, # same
-                times, # is an output
-                f0_up_key, # same
-                F0_METHODS[self.f0_method_box.currentIndex()], # same
-                file_index, # different
-                file_big_npy, # different
-                float(self.index_rate_num.text()), 
-                if_f0,
+                self.hubert_model, # model
+                self.model_state["net_g"], # net_g
+                sid, # sid
+                audio, # audio
+                input_audio, #input_audio_path
+                times, # times
+                f0_up_key, # f0_up_key
+                F0_METHODS[self.f0_method_box.currentIndex()], # f0_method
+                file_index, # file_index
+                #file_big_npy, 
+                float(self.index_rate_num.text()), # index_rate
+                if_f0, # if_f0
+                filter_radius = 3, # TODO this is a harvest setting?
+                tgt_sr = self.model_state["tgt_sr"],
+                resample_sr = self.model_state["tgt_sr"],
+                rms_mix_rate = 1, # TODO this uses the input as a volume?
+                version = "v1", # TODO how do you distnguish between 2 model vs
                 f0_file=None, 
             )
             print(
@@ -868,7 +880,7 @@ class InferenceGui(QMainWindow):
             suffix="",
         )
         hubert_model = models[0]
-        hubert_model = hubert_model.to(device)
+        hubert_model = hubert_model.to(config.device)
         if config.is_half:
             hubert_model = hubert_model.half()
         else:
@@ -878,7 +890,7 @@ class InferenceGui(QMainWindow):
 
     def try_load_speaker(self, idx):
         cpt = torch.load(
-            os.path.join(MODELS_DIR, self.voices[idx]["weight_path"]),
+            os.path.join(self.voices[idx]["weight_path"]),
             map_location="cpu")
         tgt_sr = cpt["config"][-1]
         cpt["config"][-3] = cpt["weight"]["emb_g.weight"].shape[0]  # n_spk
@@ -898,24 +910,25 @@ class InferenceGui(QMainWindow):
 
         net_g.eval().to(config.device)
 
-        if is_half:
+        if config.is_half:
             net_g = net_g.half()
         else:
             net_g = net_g.float()
 
-        self.model_state["weight_path"] = self.weights[idx]
+        self.model_state["weight_path"] = self.voices[idx]["weight_path"]
         self.model_state["cpt"] = cpt
         self.model_state["tgt_sr"] = tgt_sr
         self.model_state["net_g"] = net_g
-        self.model_state["vc"] = VC(tgt_sr, config.device, is_half)
+        self.model_state["vc"] = VC(tgt_sr, config)
         self.model_state["n_spk"] = n_spk
 
-        if self.voices[idx]["feature_index"] is not None:
-            self.feature_file_maps[self.weights[idx]]["file_index"] = (
-                self.voices[idx]["feature_index"])
-        if self.voices[idx]["feature_file"] is not None:
-            self.feature_file_maps[self.weights[idx]]["file_big_npy"] = (
-                self.voices[idx]["feature_file"])
+        self.feature_file_maps[self.voices[idx]["weight_path"]] = {}
+        self.feature_file_maps[ 
+            self.voices[idx]["weight_path"]]["file_index"] = (
+            self.voices[idx]["feature_index"])
+        self.feature_file_maps[
+            self.voices[idx]["weight_path"]]["file_big_npy"] = (
+            self.voices[idx]["feature_file"])
 
         self.load_feature_files()
         self.update_feature_file_display()
