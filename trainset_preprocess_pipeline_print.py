@@ -53,7 +53,11 @@ class PreProcess:
         os.makedirs(self.wavs16k_dir, exist_ok=True)
 
     def norm_write(self, tmp_audio, idx0, idx1):
-        tmp_audio = (tmp_audio / np.abs(tmp_audio).max() * (self.max * self.alpha)) + (
+        tmp_max = np.abs(tmp_audio).max()
+        if tmp_max > 2.5:
+            print("%s-%s-%s-filtered" % (idx0, idx1, tmp_max))
+            return
+        tmp_audio = (tmp_audio / tmp_max * (self.max * self.alpha)) + (
             1 - self.alpha
         ) * tmp_audio
         wavfile.write(
@@ -115,10 +119,10 @@ class PreProcess:
                     p = multiprocessing.Process(
                         target=self.pipeline_mp, args=(infos[i::n_p],)
                     )
-                    p.start()
                     ps.append(p)
-                for p in ps:
-                    p.join()
+                    p.start()
+                for i in range(n_p):
+                    ps[i].join()
         except:
             println("Fail. %s" % traceback.format_exc())
 

@@ -1,7 +1,24 @@
-import os, sys, traceback
+"""
+0416后的更新：
+    引入config中half
+    重建npy而不用填写
+    v2支持
+    无f0模型支持
+    修复
+
+    int16：
+    增加无索引支持
+    f0算法改harvest(怎么看就只有这个会影响CPU占用)，但是不这么改效果不好
+"""
+import os, sys, traceback, re
+
+import json
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
+from config import Config
+
+Config = Config()
 import PySimpleGUI as sg
 import sounddevice as sd
 import noisereduce as nr
@@ -12,12 +29,19 @@ import torch.nn.functional as F
 import torchaudio.transforms as tat
 import scipy.signal as signal
 
+
 # import matplotlib.pyplot as plt
-from infer_pack.models import SynthesizerTrnMs256NSFsid, SynthesizerTrnMs256NSFsid_nono
+from infer_pack.models import (
+    SynthesizerTrnMs256NSFsid,
+    SynthesizerTrnMs256NSFsid_nono,
+    SynthesizerTrnMs768NSFsid,
+    SynthesizerTrnMs768NSFsid_nono,
+)
 from i18n import I18nAuto
 
 i18n = I18nAuto()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+current_dir = os.getcwd()
 
 
 class RVC:
@@ -50,20 +74,37 @@ class RVC:
             )
             self.model = models[0]
             self.model = self.model.to(device)
-            self.model = self.model.half()
+            if Config.is_half:
+                self.model = self.model.half()
+            else:
+                self.model = self.model.float()
             self.model.eval()
             cpt = torch.load(pth_path, map_location="cpu")
             self.tgt_sr = cpt["config"][-1]
             cpt["config"][-3] = cpt["weight"]["emb_g.weight"].shape[0]  # n_spk
             self.if_f0 = cpt.get("f0", 1)
-            if self.if_f0 == 1:
-                self.net_g = SynthesizerTrnMs256NSFsid(*cpt["config"], is_half=True)
-            else:
-                self.net_g = SynthesizerTrnMs256NSFsid_nono(*cpt["config"])
+            self.version = cpt.get("version", "v1")
+            if self.version == "v1":
+                if self.if_f0 == 1:
+                    self.net_g = SynthesizerTrnMs256NSFsid(
+                        *cpt["config"], is_half=Config.is_half
+                    )
+                else:
+                    self.net_g = SynthesizerTrnMs256NSFsid_nono(*cpt["config"])
+            elif self.version == "v2":
+                if self.if_f0 == 1:
+                    self.net_g = SynthesizerTrnMs768NSFsid(
+                        *cpt["config"], is_half=Config.is_half
+                    )
+                else:
+                    self.net_g = SynthesizerTrnMs768NSFsid_nono(*cpt["config"])
             del self.net_g.enc_q
             print(self.net_g.load_state_dict(cpt["weight"], strict=False))
             self.net_g.eval().to(device)
-            self.net_g.half()
+            if Config.is_half:
+                self.net_g = self.net_g.half()
+            else:
+                self.net_g = self.net_g.float()
         except:
             print(traceback.format_exc())
 
@@ -113,37 +154,45 @@ class RVC:
         assert feats.dim() == 1, feats.dim()
         feats = feats.view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).fill_(False)
+        if Config.is_half:
+            feats = feats.half()
+        else:
+            feats = feats.float()
         inputs = {
-            "source": feats.half().to(device),
+            "source": feats.to(device),
             "padding_mask": padding_mask.to(device),
-            "output_layer": 9,  # layer 9
+            "output_layer": 9 if self.version == "v1" else 12,
         }
         torch.cuda.synchronize()
         with torch.no_grad():
             logits = self.model.extract_features(**inputs)
-            feats = self.model.final_proj(logits[0])
+            feats = (
+                self.model.final_proj(logits[0]) if self.version == "v1" else logits[0]
+            )
 
         ####索引优化
-        if hasattr(self, "index") and hasattr(self, "big_npy") and self.index_rate != 0:
-            npy = feats[0].cpu().numpy().astype("float32")
-
-            # _, I = self.index.search(npy, 1)
-            # npy = self.big_npy[I.squeeze()].astype("float16")
-
-            score, ix = self.index.search(npy, k=8)
-            weight = np.square(1 / score)
-            weight /= weight.sum(axis=1, keepdims=True)
-            npy = np.sum(
-                self.big_npy[ix] * np.expand_dims(weight, axis=2), axis=1
-            ).astype("float16")
-
-            feats = (
-                torch.from_numpy(npy).unsqueeze(0).to(device) * self.index_rate
-                + (1 - self.index_rate) * feats
-            )
-        else:
-            print("index search FAIL or disabled")
-
+        try:
+            if (
+                hasattr(self, "index")
+                and hasattr(self, "big_npy")
+                and self.index_rate != 0
+            ):
+                npy = feats[0].cpu().numpy().astype("float32")
+                score, ix = self.index.search(npy, k=8)
+                weight = np.square(1 / score)
+                weight /= weight.sum(axis=1, keepdims=True)
+                npy = np.sum(self.big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
+                if Config.is_half:
+                    npy = npy.astype("float16")
+                feats = (
+                    torch.from_numpy(npy).unsqueeze(0).to(device) * self.index_rate
+                    + (1 - self.index_rate) * feats
+                )
+            else:
+                print("index search FAIL or disabled")
+        except:
+            traceback.print_exc()
+            print("index search FAIL")
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         torch.cuda.synchronize()
         print(feats.shape)
@@ -179,7 +228,7 @@ class RVC:
         return infered_audio
 
 
-class Config:
+class GUIConfig:
     def __init__(self) -> None:
         self.hubert_path: str = ""
         self.pth_path: str = ""
@@ -199,12 +248,34 @@ class Config:
 
 class GUI:
     def __init__(self) -> None:
-        self.config = Config()
+        self.config = GUIConfig()
         self.flag_vc = False
 
         self.launcher()
 
+    def load(self):
+        input_devices, output_devices, _, _ = self.get_devices()
+        try:
+            with open("values1.json", "r") as j:
+                data = json.load(j)
+        except:
+            with open("values1.json", "w") as j:
+                data = {
+                    "pth_path": " ",
+                    "index_path": " ",
+                    "sg_input_device": input_devices[sd.default.device[0]],
+                    "sg_output_device": output_devices[sd.default.device[1]],
+                    "threhold": "-45",
+                    "pitch": "0",
+                    "index_rate": "0",
+                    "block_time": "1",
+                    "crossfade_length": "0.04",
+                    "extra_time": "1",
+                }
+        return data
+
     def launcher(self):
+        data = self.load()
         sg.theme("LightBlue3")
         input_devices, output_devices, _, _ = self.get_devices()
         layout = [
@@ -213,26 +284,50 @@ class GUI:
                     title=i18n("加载模型"),
                     layout=[
                         [
-                            sg.Input(default_text="hubert_base.pt", key="hubert_path"),
-                            sg.FileBrowse(i18n("Hubert模型")),
-                        ],
-                        [
-                            sg.Input(default_text="TEMP\\atri.pth", key="pth_path"),
-                            sg.FileBrowse(i18n("选择.pth文件")),
+                            sg.Input(
+                                default_text="hubert_base.pt",
+                                key="hubert_path",
+                                disabled=True,
+                            ),
+                            sg.FileBrowse(
+                                i18n("Hubert模型"),
+                                initial_folder=os.path.join(os.getcwd()),
+                                file_types=((". pt"),),
+                            ),
                         ],
                         [
                             sg.Input(
-                                default_text="TEMP\\added_IVF512_Flat_atri_baseline_src_feat.index",
+                                default_text=data.get("pth_path", ""),
+                                key="pth_path",
+                            ),
+                            sg.FileBrowse(
+                                i18n("选择.pth文件"),
+                                initial_folder=os.path.join(os.getcwd(), "weights"),
+                                file_types=((". pth"),),
+                            ),
+                        ],
+                        [
+                            sg.Input(
+                                default_text=data.get("index_path", ""),
                                 key="index_path",
                             ),
-                            sg.FileBrowse(i18n("选择.index文件")),
+                            sg.FileBrowse(
+                                i18n("选择.index文件"),
+                                initial_folder=os.path.join(os.getcwd(), "logs"),
+                                file_types=((". index"),),
+                            ),
                         ],
                         [
                             sg.Input(
                                 default_text="你不需要填写这个You don't need write this.",
                                 key="npy_path",
+                                disabled=True,
                             ),
-                            sg.FileBrowse(i18n("选择.npy文件")),
+                            sg.FileBrowse(
+                                i18n("选择.npy文件"),
+                                initial_folder=os.path.join(os.getcwd(), "logs"),
+                                file_types=((". npy"),),
+                            ),
                         ],
                     ],
                 )
@@ -245,7 +340,7 @@ class GUI:
                             sg.Combo(
                                 input_devices,
                                 key="sg_input_device",
-                                default_value=input_devices[sd.default.device[0]],
+                                default_value=data.get("sg_input_device", ""),
                             ),
                         ],
                         [
@@ -253,7 +348,7 @@ class GUI:
                             sg.Combo(
                                 output_devices,
                                 key="sg_output_device",
-                                default_value=output_devices[sd.default.device[1]],
+                                default_value=data.get("sg_output_device", ""),
                             ),
                         ],
                     ],
@@ -270,7 +365,7 @@ class GUI:
                                 key="threhold",
                                 resolution=1,
                                 orientation="h",
-                                default_value=-30,
+                                default_value=data.get("threhold", ""),
                             ),
                         ],
                         [
@@ -280,7 +375,7 @@ class GUI:
                                 key="pitch",
                                 resolution=1,
                                 orientation="h",
-                                default_value=12,
+                                default_value=data.get("pitch", ""),
                             ),
                         ],
                         [
@@ -290,7 +385,7 @@ class GUI:
                                 key="index_rate",
                                 resolution=0.01,
                                 orientation="h",
-                                default_value=0.5,
+                                default_value=data.get("index_rate", ""),
                             ),
                         ],
                     ],
@@ -305,7 +400,7 @@ class GUI:
                                 key="block_time",
                                 resolution=0.1,
                                 orientation="h",
-                                default_value=1.0,
+                                default_value=data.get("block_time", ""),
                             ),
                         ],
                         [
@@ -315,7 +410,7 @@ class GUI:
                                 key="crossfade_length",
                                 resolution=0.01,
                                 orientation="h",
-                                default_value=0.08,
+                                default_value=data.get("crossfade_length", ""),
                             ),
                         ],
                         [
@@ -325,7 +420,7 @@ class GUI:
                                 key="extra_time",
                                 resolution=0.01,
                                 orientation="h",
-                                default_value=0.05,
+                                default_value=data.get("extra_time", ""),
                             ),
                         ],
                         [
@@ -343,7 +438,6 @@ class GUI:
                 sg.Text("0", key="infer_time"),
             ],
         ]
-
         self.window = sg.Window("RVC - GUI", layout=layout)
         self.event_handler()
 
@@ -354,16 +448,45 @@ class GUI:
                 self.flag_vc = False
                 exit()
             if event == "start_vc" and self.flag_vc == False:
-                self.set_values(values)
-                print(str(self.config.__dict__))
-                print("using_cuda:" + str(torch.cuda.is_available()))
-                self.start_vc()
+                if self.set_values(values) == True:
+                    print("using_cuda:" + str(torch.cuda.is_available()))
+                    self.start_vc()
+                    settings = {
+                        "pth_path": values["pth_path"],
+                        "index_path": values["index_path"],
+                        "sg_input_device": values["sg_input_device"],
+                        "sg_output_device": values["sg_output_device"],
+                        "threhold": values["threhold"],
+                        "pitch": values["pitch"],
+                        "index_rate": values["index_rate"],
+                        "block_time": values["block_time"],
+                        "crossfade_length": values["crossfade_length"],
+                        "extra_time": values["extra_time"],
+                    }
+                    with open("values1.json", "w") as j:
+                        json.dump(settings, j)
             if event == "stop_vc" and self.flag_vc == True:
                 self.flag_vc = False
 
     def set_values(self, values):
+        if len(values["pth_path"].strip()) == 0:
+            sg.popup(i18n("请选择pth文件"))
+            return False
+        if len(values["index_path"].strip()) == 0:
+            sg.popup(i18n("请选择index文件"))
+            return False
+        pattern = re.compile("[^\x00-\x7F]+")
+        if pattern.findall(values["hubert_path"]):
+            sg.popup(i18n("hubert模型路径不可包含中文"))
+            return False
+        if pattern.findall(values["pth_path"]):
+            sg.popup(i18n("pth文件路径不可包含中文"))
+            return False
+        if pattern.findall(values["index_path"]):
+            sg.popup(i18n("index文件路径不可包含中文"))
+            return False
         self.set_devices(values["sg_input_device"], values["sg_output_device"])
-        self.config.hubert_path = values["hubert_path"]
+        self.config.hubert_path = os.path.join(current_dir, "hubert_base.pt")
         self.config.pth_path = values["pth_path"]
         self.config.index_path = values["index_path"]
         self.config.npy_path = values["npy_path"]
@@ -375,6 +498,7 @@ class GUI:
         self.config.I_noise_reduce = values["I_noise_reduce"]
         self.config.O_noise_reduce = values["O_noise_reduce"]
         self.config.index_rate = values["index_rate"]
+        return True
 
     def start_vc(self):
         torch.cuda.empty_cache()
@@ -539,10 +663,14 @@ class GUI:
             if d["max_output_channels"] > 0
         ]
         input_devices_indices = [
-            d["index"] for d in devices if d["max_input_channels"] > 0
+            d["index"] if "index" in d else d["name"]
+            for d in devices
+            if d["max_input_channels"] > 0
         ]
         output_devices_indices = [
-            d["index"] for d in devices if d["max_output_channels"] > 0
+            d["index"] if "index" in d else d["name"]
+            for d in devices
+            if d["max_output_channels"] > 0
         ]
         return (
             input_devices,

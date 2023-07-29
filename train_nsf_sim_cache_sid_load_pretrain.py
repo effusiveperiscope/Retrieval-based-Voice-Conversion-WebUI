@@ -9,7 +9,7 @@ import datetime
 hps = utils.get_hparams()
 os.environ["CUDA_VISIBLE_DEVICES"] = hps.gpus.replace("-", ",")
 n_gpus = len(hps.gpus.split("-"))
-from random import shuffle
+from random import shuffle, randint
 import traceback, json, argparse, itertools, math, torch, pdb
 
 torch.backends.cudnn.deterministic = False
@@ -66,18 +66,26 @@ class EpochRecorder:
 
 
 def main():
-    # n_gpus = torch.cuda.device_count()
+    n_gpus = torch.cuda.device_count()
+    if torch.cuda.is_available() == False and torch.backends.mps.is_available() == True:
+        n_gpus = 1
     os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "51545"
+    os.environ["MASTER_PORT"] = str(randint(20000, 55555))
+    children = []
+    for i in range(n_gpus):
+        subproc = mp.Process(
+            target=run,
+            args=(
+                i,
+                n_gpus,
+                hps,
+            ),
+        )
+        children.append(subproc)
+        subproc.start()
 
-    mp.spawn(
-        run,
-        nprocs=n_gpus,
-        args=(
-            n_gpus,
-            hps,
-        ),
-    )
+    for i in range(n_gpus):
+        children[i].join()
 
 
 def run(rank, n_gpus, hps):
@@ -183,18 +191,22 @@ def run(rank, n_gpus, hps):
         # traceback.print_exc()
         epoch_str = 1
         global_step = 0
-        if rank == 0:
-            logger.info("loaded pretrained %s %s" % (hps.pretrainG, hps.pretrainD))
-        print(
-            net_g.module.load_state_dict(
-                torch.load(hps.pretrainG, map_location="cpu")["model"]
+        if hps.pretrainG != "":
+            if rank == 0:
+                logger.info("loaded pretrained %s" % (hps.pretrainG))
+            print(
+                net_g.module.load_state_dict(
+                    torch.load(hps.pretrainG, map_location="cpu")["model"]
+                )
+            )  ##测试不加载优化器
+        if hps.pretrainD != "":
+            if rank == 0:
+                logger.info("loaded pretrained %s" % (hps.pretrainD))
+            print(
+                net_d.module.load_state_dict(
+                    torch.load(hps.pretrainD, map_location="cpu")["model"]
+                )
             )
-        )  ##测试不加载优化器
-        print(
-            net_d.module.load_state_dict(
-                torch.load(hps.pretrainD, map_location="cpu")["model"]
-            )
-        )
 
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
         optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2
@@ -549,9 +561,10 @@ def train_and_evaluate(
                         ckpt,
                         hps.sample_rate,
                         hps.if_f0,
-                        hps.name + "_e%s" % epoch,
+                        hps.name + "_e%s_s%s" % (epoch, global_step),
                         epoch,
                         hps.version,
+                        hps,
                     ),
                 )
             )
@@ -567,11 +580,16 @@ def train_and_evaluate(
             ckpt = net_g.state_dict()
         logger.info(
             "saving final ckpt:%s"
-            % (savee(ckpt, hps.sample_rate, hps.if_f0, hps.name, epoch, hps.version))
+            % (
+                savee(
+                    ckpt, hps.sample_rate, hps.if_f0, hps.name, epoch, hps.version, hps
+                )
+            )
         )
         sleep(1)
         os._exit(2333333)
 
 
 if __name__ == "__main__":
+    torch.multiprocessing.set_start_method("spawn")
     main()

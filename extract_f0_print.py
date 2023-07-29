@@ -86,7 +86,7 @@ class FeatureInput(object):
         # use 0 or 1
         f0_mel[f0_mel <= 1] = 1
         f0_mel[f0_mel > self.f0_bin - 1] = self.f0_bin - 1
-        f0_coarse = np.rint(f0_mel).astype(np.int)
+        f0_coarse = np.rint(f0_mel).astype(int)
         assert f0_coarse.max() <= 255 and f0_coarse.min() >= 1, (
             f0_coarse.max(),
             f0_coarse.min(),
@@ -154,7 +154,7 @@ if __name__ == "__main__":
                 f0method,
             ),
         )
-        p.start()
         ps.append(p)
-    for p in ps:
-        p.join()
+        p.start()
+    for i in range(n_p):
+        ps[i].join()
