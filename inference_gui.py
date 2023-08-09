@@ -37,7 +37,9 @@ from my_utils import load_audio
 from vc_infer_pipeline import VC
 from config import Config
 config = Config()
-from infer_pack.models import (SynthesizerTrnMs256NSFsid,
+from infer_pack.models import (SynthesizerTrnMs768NSFsid,
+    SynthesizerTrnMs256NSFsid,
+    SynthesizerTrnMs768NSFsid_nono,
     SynthesizerTrnMs256NSFsid_nono)
 
 MODELS_DIR = "models"
@@ -83,14 +85,11 @@ def get_voices():
 
             feature_index = glob.glob(os.path.join(
                 MODELS_DIR,folder,'*.index'))
-            feature_file = glob.glob(os.path.join(
-                MODELS_DIR,folder,'*.npy'))
-            if (not len(feature_index)) and (not len (feature_file)):
+            if not len(feature_index):
                 print("Note: No feature search files found for "+folder)
                 continue
             else:
                 cur_speaker["feature_index"] = feature_index[0]
-                cur_speaker["feature_file"] = feature_file[0]
 
             voices.append(copy.copy(cur_speaker))
     return voices
@@ -622,13 +621,6 @@ class InferenceGui(QMainWindow):
             self.write_feature_file_map)
         self.rvc_layout.addWidget(self.feature_search_button)
         self.rvc_layout.addWidget(self.feature_search_label)
-        self.feature_file_button = SimpleFileButton(
-            "Feature File (total_fea.npy)")
-        self.feature_file_label = QLabel("Feature file: ")
-        self.feature_file_button.sendFile.connect(
-            self.write_feature_file_map)
-        self.rvc_layout.addWidget(self.feature_file_button)
-        self.rvc_layout.addWidget(self.feature_file_label)
 
         self.convert_button = QPushButton("Convert")
         self.convert_button.clicked.connect(self.convert)
@@ -659,32 +651,16 @@ class InferenceGui(QMainWindow):
             return
         weight_path = self.model_state["weight_path"]
         self.feature_file_maps[weight_path] = {}
-        # Proposed feature: Allow updating of file_big_npy automatically
         self.feature_file_maps[weight_path][
             "file_index"] = (self.feature_search_button.files[0] if
             len(self.feature_search_button.files) else None)
 
-        if len(self.feature_search_button.files):
-            # Attempt to find feature file candidates
-            feature_file_search_path = (str(Path(
-                self.feature_search_button.files[0]).parent)+
-                os.path.sep+"*.npy")
-            feature_file_candidates = glob.glob(feature_file_search_path)
-            if len(feature_file_candidates):
-                self.feature_file_button.files = [feature_file_candidates[0]]
-
-        self.feature_file_maps[weight_path][
-            "file_big_npy"] = (self.feature_file_button.files[0] if
-            len(self.feature_file_button.files) else None)
         self.update_feature_file_display()
 
     def update_feature_file_display(self):
         self.feature_search_label.setText("Feature search database: "
             + (self.feature_search_button.files[0] if
             len(self.feature_search_button.files) else ""))
-        self.feature_file_label.setText("Feature file: "
-            + (self.feature_file_button.files[0] if
-            len(self.feature_file_button.files) else ""))
 
     def load_feature_files(self):
         if not "weight_path" in self.model_state:
@@ -695,8 +671,6 @@ class InferenceGui(QMainWindow):
             return
         self.feature_search_button.files = [self.feature_file_maps[
             weight_path]["file_index"]]
-        self.feature_file_button.files = [self.feature_file_maps[
-            weight_path]["file_big_npy"]]
 
     def save_persist(self):
         with open(JSON_NAME, "w") as f:
@@ -821,17 +795,13 @@ class InferenceGui(QMainWindow):
             if self.hubert_model is None:
                 load_hubert()
             if_f0 = self.model_state["cpt"].get("f0", 1) # why this fukt?
-            if not len(self.feature_search_button.files) or not len(
-                    self.feature_file_button.files):
+            if not len(self.feature_search_button.files):
                 file_index = ""
                 file_big_npy = ""
             else:
                 file_index = self.feature_search_button.files[0]
                 file_index = file_index.strip(" ").strip('"').strip("\n"
                     ).strip('"').strip(" ").replace("trained","added") 
-                file_big_npy = self.feature_file_button.files[0]
-                file_big_npy = file_big_npy.strip(" ").strip('"').strip("\n"
-                    ).strip('"').strip(" ") 
             audio_opt = self.model_state["vc"].pipeline(
                 self.hubert_model, # model
                 self.model_state["net_g"], # net_g
@@ -849,19 +819,9 @@ class InferenceGui(QMainWindow):
                 tgt_sr = self.model_state["tgt_sr"],
                 resample_sr = self.model_state["tgt_sr"],
                 rms_mix_rate = 1, # TODO this uses the input as a volume?
-                version = "v1", # TODO how do you distnguish between 2 model vs
+                version = "v2", # TODO how do you distnguish between 2 model vs
+                protect = 0.0, # TODO
                 f0_file=None, 
-            )
-            print(
-                sid,
-                audio,
-                times,
-                f0_up_key,
-                F0_METHODS[self.f0_method_box.currentIndex()], 
-                file_index,
-                file_big_npy,
-                float(self.index_rate_num.text()), 
-                if_f0
             )
             #print(audio_opt)
             #print(
@@ -896,12 +856,20 @@ class InferenceGui(QMainWindow):
         cpt["config"][-3] = cpt["weight"]["emb_g.weight"].shape[0]  # n_spk
         n_spk = cpt["config"][-3]
         if_f0 = cpt.get("f0", 1)
+        version = cpt.get("version", "v1")
 
-        if if_f0 == 1:
-            net_g = SynthesizerTrnMs256NSFsid(*cpt["config"],
-                is_half=config.is_half)
-        else:
-            net_g = SynthesizerTrnMs256NSFsid_nono(*cpt["config"])
+        if version == "v1":
+            if if_f0 == 1:
+                net_g = SynthesizerTrnMs256NSFsid(*cpt["config"],
+                    is_half=config.is_half)
+            else:
+                net_g = SynthesizerTrnMs256NSFsid_nono(*cpt["config"])
+        elif version == "v2":
+            if if_f0 == 1:
+                net_g = SynthesizerTrnMs768NSFsid(*cpt["config"],
+                    is_half=config.is_half)
+            else:
+                net_g = SynthesizerTrnMs768NSFsid_nono(*cpt["config"])
         del net_g.enc_q
         # I love it when people put statements inside prints that actually
         # change something
@@ -926,9 +894,6 @@ class InferenceGui(QMainWindow):
         self.feature_file_maps[ 
             self.voices[idx]["weight_path"]]["file_index"] = (
             self.voices[idx]["feature_index"])
-        self.feature_file_maps[
-            self.voices[idx]["weight_path"]]["file_big_npy"] = (
-            self.voices[idx]["feature_file"])
 
         self.load_feature_files()
         self.update_feature_file_display()
