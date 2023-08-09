@@ -3,18 +3,18 @@ from scipy import signal
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
-
+print(sys.argv)
 inp_root = sys.argv[1]
 sr = int(sys.argv[2])
 n_p = int(sys.argv[3])
 exp_dir = sys.argv[4]
 noparallel = sys.argv[5] == "True"
 import numpy as np, os, traceback
-from slicer2 import Slicer
+from lib.slicer2 import Slicer
 import librosa, traceback
 from scipy.io import wavfile
 import multiprocessing
-from my_utils import load_audio
+from lib.audio import load_audio
 
 mutex = multiprocessing.Lock()
 f = open("%s/preprocess.log" % exp_dir, "a+")
@@ -40,7 +40,7 @@ class PreProcess:
         )
         self.sr = sr
         self.bh, self.ah = signal.butter(N=5, Wn=48, btype="high", fs=self.sr)
-        self.per = 3.7
+        self.per = 3.0
         self.overlap = 0.3
         self.tail = self.per + self.overlap
         self.max = 0.9

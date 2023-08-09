@@ -22,10 +22,13 @@ def process(fn: str):
 print("processing infer-web.py")
 process("infer-web.py")
 
-print("processing gui.py")
-process("gui.py")
+print("processing gui_v0.py")
+process("gui_v0.py")
+
+print("processing gui_v1.py")
+process("gui_v1.py")
 
 # Save as a JSON file
-with open("./i18n/zh_CN.json", "w", encoding="utf-8") as f:
+with open("./lib/i18n/zh_CN.json", "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=4)
     f.write("\n")

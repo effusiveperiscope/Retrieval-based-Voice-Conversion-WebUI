@@ -1,4 +1,3 @@
-import io
 import os
 import torch
 
@@ -6,14 +5,12 @@ import torch
 import gradio as gr
 import librosa
 import numpy as np
-import soundfile
 import logging
 from fairseq import checkpoint_utils
-from my_utils import load_audio
 from vc_infer_pipeline import VC
 import traceback
 from config import Config
-from infer_pack.models import (
+from lib.infer_pack.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
@@ -240,7 +237,7 @@ with app:
             vc_transform0 = gr.Number(label=i18n("变调(整数, 半音数量, 升八度12降八度-12)"), value=0)
             f0method0 = gr.Radio(
                 label=i18n("选择音高提取算法,输入歌声可用pm提速,harvest低音好但巨慢无比,crepe效果好但吃GPU"),
-                choices=["pm", "harvest", "crepe"],
+                choices=["pm", "harvest", "crepe", "rmvpe"],
                 value="pm",
                 interactive=True,
             )
