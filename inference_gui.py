@@ -33,11 +33,11 @@ sys.path.append(now_dir)
 os.makedirs(os.path.join(now_dir, "logs"), exist_ok=True)
 os.makedirs(os.path.join(now_dir, "weights"), exist_ok=True)
 
-from my_utils import load_audio
+from lib.audio import load_audio
 from vc_infer_pipeline import VC
 from config import Config
 config = Config()
-from infer_pack.models import (SynthesizerTrnMs768NSFsid,
+from lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
     SynthesizerTrnMs256NSFsid_nono)
