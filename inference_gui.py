@@ -794,7 +794,7 @@ class InferenceGui(QMainWindow):
             times = [0, 0, 0]
             if self.hubert_model is None:
                 load_hubert()
-            if_f0 = self.model_state["cpt"].get("f0", 1) # why this fukt?
+            if_f0 = self.model_state["cpt"].get("f0", 1) 
             if not len(self.feature_search_button.files):
                 file_index = ""
                 file_big_npy = ""
@@ -819,7 +819,7 @@ class InferenceGui(QMainWindow):
                 tgt_sr = self.model_state["tgt_sr"],
                 resample_sr = self.model_state["tgt_sr"],
                 rms_mix_rate = 1, # TODO this uses the input as a volume?
-                version = "v2", # TODO how do you distnguish between 2 model vs
+                version = self.model_state["version"], 
                 protect = 0.0, # TODO
                 f0_file=None, 
             )
@@ -858,6 +858,9 @@ class InferenceGui(QMainWindow):
         if_f0 = cpt.get("f0", 1)
         version = cpt.get("version", "v1")
 
+        print("Detected version: "+version)
+        cpt_channels = cpt["config"][4]
+        #print(cpt_channels)
         if version == "v1":
             if if_f0 == 1:
                 net_g = SynthesizerTrnMs256NSFsid(*cpt["config"],
@@ -889,6 +892,7 @@ class InferenceGui(QMainWindow):
         self.model_state["net_g"] = net_g
         self.model_state["vc"] = VC(tgt_sr, config)
         self.model_state["n_spk"] = n_spk
+        self.model_state["version"] = version
 
         self.feature_file_maps[self.voices[idx]["weight_path"]] = {}
         self.feature_file_maps[ 
