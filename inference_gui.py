@@ -87,7 +87,7 @@ def get_voices():
                 MODELS_DIR,folder,'*.index'))
             if not len(feature_index):
                 print("Note: No feature search files found for "+folder)
-                continue
+                #continue # This shouldn't be a skip
             else:
                 cur_speaker["feature_index"] = feature_index[0]
 
@@ -608,11 +608,23 @@ class InferenceGui(QMainWindow):
             self.f0_method_box.addItem(x)
         self.rvc_layout.addWidget(self.f0_method_box)
 
-        self.index_rate_num = QLineEdit('0.0')
-        self.index_rate_num.setValidator(QDoubleValidator(0.0,1.0,1))
+        self.index_rate_num = QLineEdit('0.75')
+        self.index_rate_num.setValidator(QDoubleValidator(0.0,1.0,2))
         self.index_rate_frame = FieldWidget(
             QLabel("Index Rate"), self.index_rate_num)
         self.rvc_layout.addWidget(self.index_rate_frame)
+
+        self.rms_mix_rate_num = QLineEdit('0.25')
+        self.rms_mix_rate_num.setValidator(QDoubleValidator(0.0,1.0,2))
+        self.rms_mix_rate_num_frame = FieldWidget(
+            QLabel("RMS Mix Rate"), self.rms_mix_rate_num)
+        self.rvc_layout.addWidget(self.rms_mix_rate_num_frame)
+
+        self.protect_num = QLineEdit('0.33')
+        self.protect_num.setValidator(QDoubleValidator(0.0,1.0,2))
+        self.protect_num_frame = FieldWidget(
+            QLabel("Protect"), self.protect_num)
+        self.rvc_layout.addWidget(self.protect_num_frame)
 
         self.feature_search_button = SimpleFileButton(
             "Feature Search Database (*.index)")
@@ -666,11 +678,14 @@ class InferenceGui(QMainWindow):
         if not "weight_path" in self.model_state:
             return
         weight_path = self.model_state["weight_path"]
-        print(weight_path)
+        #print(weight_path)
         if not weight_path in self.feature_file_maps:
             return
-        self.feature_search_button.files = [self.feature_file_maps[
-            weight_path]["file_index"]]
+        if self.feature_file_maps[weight_path].get("file_index") is not None:
+            self.feature_search_button.files = [self.feature_file_maps[
+                weight_path].get("file_index")]
+        else:
+            self.feature_search_button.files = []
 
     def save_persist(self):
         with open(JSON_NAME, "w") as f:
@@ -815,12 +830,12 @@ class InferenceGui(QMainWindow):
                 #file_big_npy, 
                 float(self.index_rate_num.text()), # index_rate
                 if_f0, # if_f0
-                filter_radius = 3, # TODO this is a harvest setting?
+                filter_radius = 3, 
                 tgt_sr = self.model_state["tgt_sr"],
                 resample_sr = self.model_state["tgt_sr"],
-                rms_mix_rate = 1, # TODO this uses the input as a volume?
+                rms_mix_rate = float(self.rms_mix_rate_num.text()),
                 version = self.model_state["version"], 
-                protect = 0.0, # TODO
+                protect = float(self.protect_num.text()),
                 f0_file=None, 
             )
             #print(audio_opt)
@@ -856,11 +871,13 @@ class InferenceGui(QMainWindow):
         cpt["config"][-3] = cpt["weight"]["emb_g.weight"].shape[0]  # n_spk
         n_spk = cpt["config"][-3]
         if_f0 = cpt.get("f0", 1)
+        #print(if_f0)
         version = cpt.get("version", "v1")
 
         print("Detected version: "+version)
         cpt_channels = cpt["config"][4]
-        #print(cpt_channels)
+        #print(len(cpt["config"]))
+        #print(cpt["config"])
         if version == "v1":
             if if_f0 == 1:
                 net_g = SynthesizerTrnMs256NSFsid(*cpt["config"],
@@ -895,9 +912,11 @@ class InferenceGui(QMainWindow):
         self.model_state["version"] = version
 
         self.feature_file_maps[self.voices[idx]["weight_path"]] = {}
-        self.feature_file_maps[ 
-            self.voices[idx]["weight_path"]]["file_index"] = (
-            self.voices[idx]["feature_index"])
+        if self.voices[idx].get("feature_index") is not None:
+            print(self.voices[idx].get("feature_index"))
+            self.feature_file_maps[ 
+                self.voices[idx]["weight_path"]]["file_index"] = (
+                self.voices[idx]["feature_index"])
 
         self.load_feature_files()
         self.update_feature_file_display()
