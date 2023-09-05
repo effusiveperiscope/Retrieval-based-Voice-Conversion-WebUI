@@ -30,6 +30,7 @@ class Config:
         self.n_cpu = 0
         self.gpu_name = None
         self.gpu_mem = None
+        self.dml = False
         if do_argparse:
             (
                 self.python_cmd,
