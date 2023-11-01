@@ -43,7 +43,7 @@ from lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs256NSFsid_nono)
 
 MODELS_DIR = "models"
-F0_METHODS = ["harvest","pm"]
+F0_METHODS = ["harvest","pm","rmvpe"]
 RECORD_DIR = "./recordings"
 RECORD_SHORTCUT = "ctrl+shift+r"
 JSON_NAME = "inference_gui_rvc_persist.json"
