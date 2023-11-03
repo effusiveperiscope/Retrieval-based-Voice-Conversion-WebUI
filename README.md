@@ -6,7 +6,7 @@ Fork of RVC for /ppp/ use. WebUIs not compatible. Works similarly to so-vits-svc
 pth and feature index file(s).
 
 <h1>Retrieval-based-Voice-Conversion-WebUI</h1>
-一个基于VITS的简单易用的语音转换（变声器）框架<br><br>
+一个基于VITS的简单易用的变声框架<br><br>
 
 [![madewithlove](https://img.shields.io/badge/made_with-%E2%9D%A4-red?style=for-the-badge&labelColor=orange
 )](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
@@ -25,11 +25,17 @@ pth and feature index file(s).
 
 ------
 
-[**English**](./docs/README.en.md) | [**中文简体**](./README.md) | [**日本語**](./docs/README.ja.md) | [**한국어**](./docs/README.ko.md) ([**韓國語**](./docs/README.ko.han.md)) | [**Türkçe**](./docs/README.tr.md)
+[**English**](./docs/en/README.en.md) | [**中文简体**](./README.md) | [**日本語**](./docs/jp/README.ja.md) | [**한국어**](./docs/kr/README.ko.md) ([**韓國語**](./docs/kr/README.ko.han.md)) | [**Français**](./docs/fr/README.fr.md)| [**Türkçe**](./docs/tr/README.tr.md)
 
 点此查看我们的[演示视频](https://www.bilibili.com/video/BV1pm4y1z7Gm/) !
 
-> 使用了RVC的实时语音转换: [w-okada/voice-changer](https://github.com/w-okada/voice-changer)
+训练推理界面：go-web.bat
+
+![image](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI/assets/129054828/092e5c12-0d49-4168-a590-0b0ef6a4f630)
+
+实时变声界面：go-realtime-gui.bat
+
+![image](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI/assets/129054828/143246a9-8b42-4dd1-a197-430ede4d15d7)
 
 > 底模使用接近50小时的开源高质量VCTK训练集训练，无版权方面的顾虑，请大家放心使用
 
@@ -73,12 +79,16 @@ poetry install
 你也可以通过 pip 来安装依赖：
 ```bash
 N卡：
-
-pip install -r requirements.txt
+  pip install -r requirements.txt
 
 A卡/I卡：
-pip install -r requirements-dml.txt
+  pip install -r requirements-dml.txt
 
+A卡Rocm（Linux）：
+  pip install -r requirements-amd.txt
+
+I卡IPEX（Linux）：
+  pip install -r requirements-ipex.txt
 ```
 
 ------
@@ -94,15 +104,15 @@ RVC需要其他一些预模型来推理和训练。
 
 以下是一份清单，包括了所有RVC所需的预模型和其他文件的名称:
 ```bash
-hubert_base.pt
+./assets/hubert/hubert_base.pt
 
-./pretrained 
+./assets/pretrained 
 
-./uvr5_weights
+./assets/uvr5_weights
 
 想测试v2版本模型的话，需要额外下载
 
-./pretrained_v2 
+./assets/pretrained_v2
 
 如果你正在使用Windows，则你可能需要这个文件，若ffmpeg和ffprobe已安装则跳过; ubuntu/debian 用户可以通过apt install ffmpeg来安装这2个库, Mac 用户则可以通过brew install ffmpeg来安装 (需要预先安装brew)
 
@@ -127,10 +137,33 @@ https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/rmvpe.pt
 ```bash
 python infer-web.py
 ```
-
 如果你正在使用Windows 或 macOS，你可以直接下载并解压`RVC-beta.7z`，前者可以运行`go-web.bat`以启动WebUI，后者则运行命令`sh ./run.sh`以启动WebUI。
 
+对于需要使用IPEX技术的I卡用户，请先在终端执行`source /opt/intel/oneapi/setvars.sh`（仅Linux）。
+
 仓库内还有一份`小白简易教程.doc`以供参考。
+
+## AMD显卡Rocm相关（仅Linux）
+如果你想基于AMD的Rocm技术在Linux系统上运行RVC，请先在[这里](https://rocm.docs.amd.com/en/latest/deploy/linux/os-native/install.html)安装所需的驱动。
+
+若你使用的是Arch Linux，可以使用pacman来安装所需驱动：
+````
+pacman -S rocm-hip-sdk rocm-opencl-sdk
+````
+对于某些型号的显卡，你可能需要额外配置如下的环境变量（如：RX6700XT）：
+````
+export ROCM_PATH=/opt/rocm
+export HSA_OVERRIDE_GFX_VERSION=10.3.0
+````
+同时确保你的当前用户处于`render`与`video`用户组内：
+````
+sudo usermod -aG render $USERNAME
+sudo usermod -aG video $USERNAME
+````
+之后运行WebUI：
+```bash
+python infer-web.py
+```
 
 ## 参考项目
 + [ContentVec](https://github.com/auspicious3000/contentvec/)
