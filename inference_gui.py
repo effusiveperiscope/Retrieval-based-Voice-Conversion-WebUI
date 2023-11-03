@@ -33,17 +33,18 @@ sys.path.append(now_dir)
 os.makedirs(os.path.join(now_dir, "logs"), exist_ok=True)
 os.makedirs(os.path.join(now_dir, "weights"), exist_ok=True)
 
-from lib.audio import load_audio
-from vc_infer_pipeline import VC
-from config import Config
+from infer.lib.audio import load_audio
+from infer.modules.vc.modules import VC
+from infer.modules.vc.pipeline import Pipeline
+from configs.config import Config
 config = Config()
-from lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
+from infer.lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
     SynthesizerTrnMs256NSFsid_nono)
 
 MODELS_DIR = "models"
-F0_METHODS = ["harvest","pm","rmvpe"]
+F0_METHODS = ["crepe","harvest","pm","rmvpe"]
 RECORD_DIR = "./recordings"
 RECORD_SHORTCUT = "ctrl+shift+r"
 JSON_NAME = "inference_gui_rvc_persist.json"
@@ -817,7 +818,7 @@ class InferenceGui(QMainWindow):
                 file_index = self.feature_search_button.files[0]
                 file_index = file_index.strip(" ").strip('"').strip("\n"
                     ).strip('"').strip(" ").replace("trained","added") 
-            audio_opt = self.model_state["vc"].pipeline(
+            audio_opt = self.model_state["pipeline"].pipeline(
                 self.hubert_model, # model
                 self.model_state["net_g"], # net_g
                 sid, # sid
@@ -907,7 +908,7 @@ class InferenceGui(QMainWindow):
         self.model_state["cpt"] = cpt
         self.model_state["tgt_sr"] = tgt_sr
         self.model_state["net_g"] = net_g
-        self.model_state["vc"] = VC(tgt_sr, config)
+        self.model_state["pipeline"] = Pipeline(tgt_sr, config)
         self.model_state["n_spk"] = n_spk
         self.model_state["version"] = version
 
