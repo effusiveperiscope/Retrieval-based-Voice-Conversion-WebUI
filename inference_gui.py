@@ -44,7 +44,7 @@ from infer.lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs256NSFsid_nono)
 
 MODELS_DIR = "models"
-F0_METHODS = ["crepe","harvest","pm","rmvpe"]
+F0_METHODS = ['rmvpe',"crepe","harvest","pm"]
 RECORD_DIR = "./recordings"
 RECORD_SHORTCUT = "ctrl+shift+r"
 JSON_NAME = "inference_gui_rvc_persist.json"
@@ -91,6 +91,11 @@ def get_voices():
                 #continue # This shouldn't be a skip
             else:
                 cur_speaker["feature_index"] = feature_index[0]
+
+            mean_feature = glob.glob(os.path.join(
+                MODELS_DIR, folder, 'mean_feature_*.npy'))
+            if len(mean_feature):
+                cur_speaker["mean_feature"] = mean_feature[0]
 
             voices.append(copy.copy(cur_speaker))
     return voices
@@ -615,11 +620,24 @@ class InferenceGui(QMainWindow):
             QLabel("Index Rate"), self.index_rate_num)
         self.rvc_layout.addWidget(self.index_rate_frame)
 
-        self.rms_mix_rate_num = QLineEdit('0.25')
+        self.filter_radius = QLineEdit('3')
+        self.filter_radius.setValidator(QIntValidator(0,100))
+        self.filter_radius_frame = FieldWidget(
+            QLabel("Filter Radius"), self.filter_radius)
+        self.rvc_layout.addWidget(self.filter_radius_frame)
+
+        self.rms_mix_rate_num = QLineEdit('1.0')
         self.rms_mix_rate_num.setValidator(QDoubleValidator(0.0,1.0,2))
         self.rms_mix_rate_num_frame = FieldWidget(
             QLabel("RMS Mix Rate"), self.rms_mix_rate_num)
         self.rvc_layout.addWidget(self.rms_mix_rate_num_frame)
+
+        self.mean_force_num = QLineEdit('0.0')
+        self.mean_force_num.setValidator(QDoubleValidator(0.0, 2.0, 2))
+        mean_force_num_frame = FieldWidget(
+            QLabel('Mean Force Rate'), self.mean_force_num
+        )
+        self.rvc_layout.addWidget(mean_force_num_frame)
 
         self.protect_num = QLineEdit('0.33')
         self.protect_num.setValidator(QDoubleValidator(0.0,1.0,2))
@@ -807,6 +825,7 @@ class InferenceGui(QMainWindow):
         f0_up_key = int(self.transpose_num.text()) 
         try:
             audio = load_audio(input_audio, 16000)
+            print('from load ',len(audio))
             times = [0, 0, 0]
             if self.hubert_model is None:
                 load_hubert()
@@ -831,13 +850,16 @@ class InferenceGui(QMainWindow):
                 #file_big_npy, 
                 float(self.index_rate_num.text()), # index_rate
                 if_f0, # if_f0
-                filter_radius = 3, 
+                filter_radius = int(self.filter_radius.text()), 
                 tgt_sr = self.model_state["tgt_sr"],
                 resample_sr = self.model_state["tgt_sr"],
                 rms_mix_rate = float(self.rms_mix_rate_num.text()),
                 version = self.model_state["version"], 
                 protect = float(self.protect_num.text()),
                 f0_file=None, 
+                extra_hooks={
+                    'feature_transform': self.mean_transform
+                }
             )
             #print(audio_opt)
             #print(
@@ -864,6 +886,16 @@ class InferenceGui(QMainWindow):
         hubert_model.eval()
         self.hubert_model = hubert_model
 
+    def mean_transform(self, feats):
+        mean_feature = self.model_state.get('mean_feature')
+        if mean_feature is None:
+            return feats
+        input_features_mean = torch.mean(feats, dim=1)
+        target_mean = torch.from_numpy(mean_feature).to(feats.device)
+        delta_mean = target_mean - input_features_mean
+        mean_force_ratio = float(self.mean_force_num.text())
+        return feats + delta_mean*mean_force_ratio
+
     def try_load_speaker(self, idx):
         cpt = torch.load(
             os.path.join(self.voices[idx]["weight_path"]),
@@ -872,13 +904,10 @@ class InferenceGui(QMainWindow):
         cpt["config"][-3] = cpt["weight"]["emb_g.weight"].shape[0]  # n_spk
         n_spk = cpt["config"][-3]
         if_f0 = cpt.get("f0", 1)
-        #print(if_f0)
         version = cpt.get("version", "v1")
 
         print("Detected version: "+version)
         cpt_channels = cpt["config"][4]
-        #print(len(cpt["config"]))
-        #print(cpt["config"])
         if version == "v1":
             if if_f0 == 1:
                 net_g = SynthesizerTrnMs256NSFsid(*cpt["config"],
@@ -892,8 +921,6 @@ class InferenceGui(QMainWindow):
             else:
                 net_g = SynthesizerTrnMs768NSFsid_nono(*cpt["config"])
         del net_g.enc_q
-        # I love it when people put statements inside prints that actually
-        # change something
         netg_print = net_g.load_state_dict(cpt["weight"], strict=False)
         print(netg_print)  
 
@@ -918,6 +945,11 @@ class InferenceGui(QMainWindow):
             self.feature_file_maps[ 
                 self.voices[idx]["weight_path"]]["file_index"] = (
                 self.voices[idx]["feature_index"])
+
+        mean_feature = self.voices[idx].get("mean_feature")
+        if mean_feature is not None:
+            print("Mean feature found:"+mean_feature)
+            self.model_state["mean_feature"] = np.load(mean_feature)
 
         self.load_feature_files()
         self.update_feature_file_display()

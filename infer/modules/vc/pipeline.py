@@ -2,6 +2,7 @@ import os
 import sys
 import traceback
 import logging
+from huggingface_hub import hf_hub_download
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,7 @@ from time import time as ttime
 
 import faiss
 import librosa
+import soundfile as sf
 import numpy as np
 import parselmouth
 import pyworld
@@ -90,6 +92,7 @@ class Pipeline(object):
         f0_method,
         filter_radius,
         inp_f0=None,
+        target_f0_mean=None
     ):
         global input_audio_path2wav
         time_step = self.window / self.sr * 1000
@@ -114,6 +117,8 @@ class Pipeline(object):
                     f0, [[pad_size, p_len - len(f0) - pad_size]], mode="constant"
                 )
         elif f0_method == "harvest":
+            if input_audio_path is None:
+                raise ValueError('Null input_audio_path not supported with harvest')
             input_audio_path2wav[input_audio_path] = x.astype(np.double)
             f0 = cache_harvest_f0(input_audio_path, self.sr, f0_max, f0_min, 10)
             if filter_radius > 2:
@@ -142,12 +147,10 @@ class Pipeline(object):
         elif f0_method == "rmvpe":
             if not hasattr(self, "model_rmvpe"):
                 from infer.lib.rmvpe import RMVPE
-
-                logger.info(
-                    "Loading rmvpe model,%s" % "%s/rmvpe.pt" % os.environ["rmvpe_root"]
-                )
+                logger.info("Loading rmvpe model")
+                rvc_rmvpe_path = '%s/rmvpe.pt' % os.environ.get('rmvpe_root', '.')
                 self.model_rmvpe = RMVPE(
-                    "%s/rmvpe.pt" % os.environ["rmvpe_root"],
+                    model_path=rvc_rmvpe_path,
                     is_half=self.is_half,
                     device=self.device,
                 )
@@ -157,8 +160,13 @@ class Pipeline(object):
                 del self.model_rmvpe.model
                 del self.model_rmvpe
                 logger.info("Cleaning ortruntime memory")
+        elif f0_method == "forward":
+            f0 = x
 
         f0 *= pow(2, f0_up_key / 12)
+        if target_f0_mean is not None:
+            cur_mean = (f0[f0 != 0]).mean()
+            f0 *= target_f0_mean / cur_mean
         # with open("test.txt","w")as f:f.write("\n".join([str(i)for i in f0.tolist()]))
         tf0 = self.sr // self.window  # 每秒f0点数
         if inp_f0 is not None:
@@ -197,27 +205,43 @@ class Pipeline(object):
         index_rate,
         version,
         protect,
+        extra_hooks
     ):  # ,file_index,file_big_npy
         feats = torch.from_numpy(audio0)
+        t0 = ttime()
+        if extra_hooks.get('feature_override') is None:
+            if self.is_half:
+                feats = feats.half()
+            else:
+                feats = feats.float()
+            if feats.dim() == 2:  # double channels
+                feats = feats.mean(-1)
+            assert feats.dim() == 1, feats.dim()
+            feats = feats.view(1, -1)
+            padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
+
+            #print(feats.shape)
+            inputs = {
+                "source": feats.to(self.device),
+                "padding_mask": padding_mask,
+                "output_layer": 9 if version == "v1" else 12,
+            }
+            with torch.no_grad():
+                logits = model.extract_features(**inputs)
+                feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
+            if extra_hooks.get('feature_transform') is not None:
+                feature_transform = extra_hooks.get('feature_transform')
+                feats = feature_transform(feats)
+            del padding_mask
+        else:
+            feature_override = extra_hooks.get('feature_override')
+            feats = feature_override(feats).to(self.device) # Pass in the padded audio
+
         if self.is_half:
             feats = feats.half()
         else:
             feats = feats.float()
-        if feats.dim() == 2:  # double channels
-            feats = feats.mean(-1)
-        assert feats.dim() == 1, feats.dim()
-        feats = feats.view(1, -1)
-        padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
 
-        inputs = {
-            "source": feats.to(self.device),
-            "padding_mask": padding_mask,
-            "output_layer": 9 if version == "v1" else 12,
-        }
-        t0 = ttime()
-        with torch.no_grad():
-            logits = model.extract_features(**inputs)
-            feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
         if protect < 0.5 and pitch is not None and pitchf is not None:
             feats0 = feats.clone()
         if (
@@ -270,12 +294,89 @@ class Pipeline(object):
             arg = (feats, p_len, pitch, pitchf, sid) if hasp else (feats, p_len, sid)
             audio1 = (net_g.infer(*arg)[0][0, 0]).data.cpu().float().numpy()
             del hasp, arg
-        del feats, p_len, padding_mask
+        del feats, p_len
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         t2 = ttime()
         times[0] += t1 - t0
         times[2] += t2 - t1
+        return audio1
+
+    def vc_tts(
+        self,
+        net_g,
+        sid,
+        infer_dict,
+        pitch,
+        pitchf,
+        index,
+        big_npy,
+        index_rate,
+        version,
+        protect,
+    ):  # ,file_index,file_big_npy
+        t0 = ttime()
+        with torch.no_grad():
+            feats = infer_dict["features"][0].to(self.device)
+        if protect < 0.5 and pitch is not None and pitchf is not None:
+            feats0 = feats.clone()
+        if (
+            not isinstance(index, type(None))
+            and not isinstance(big_npy, type(None))
+            and index_rate != 0
+        ):
+            npy = feats.cpu().numpy()
+            if self.is_half:
+                npy = npy.astype("float32")
+
+            # _, I = index.search(npy, 1)
+            # npy = big_npy[I.squeeze()]
+
+            score, ix = index.search(npy, k=8)
+            weight = np.square(1 / score)
+            weight /= weight.sum(axis=1, keepdims=True)
+            npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
+
+            if self.is_half:
+                npy = npy.astype("float16")
+            feats = (
+                torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
+                + (1 - index_rate) * feats
+            )
+
+        feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+        if protect < 0.5 and pitch is not None and pitchf is not None:
+            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
+                0, 2, 1
+            )
+        t1 = ttime()
+        p_len = infer_dict["f0"].size(1)
+        if feats.shape[1] < p_len:
+            p_len = feats.shape[1]
+            if pitch is not None and pitchf is not None:
+                pitch = pitch[:, :p_len]
+                pitchf = pitchf[:, :p_len]
+
+        if protect < 0.5 and pitch is not None and pitchf is not None:
+            pitchff = pitchf.clone()
+            pitchff[pitchf > 0] = 1
+            pitchff[pitchf < 1] = protect
+            pitchff = pitchff.unsqueeze(-1)
+            feats = feats * pitchff + feats0 * (1 - pitchff)
+            feats = feats.to(feats0.dtype)
+        
+        p_len = torch.tensor([p_len], device=self.device).long()
+        if self.is_half:
+            feats = feats.type(torch.float16)
+        with torch.no_grad():
+            hasp = pitch is not None and pitchf is not None
+            arg = (feats, p_len, pitch, pitchf, sid) if hasp else (feats, p_len, sid)
+            audio1 = (net_g.infer(*arg)[0][0, 0]).data.cpu().float().numpy()
+            del hasp, arg
+        del feats, p_len
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        t2 = ttime()
         return audio1
 
     def pipeline(
@@ -298,6 +399,8 @@ class Pipeline(object):
         version,
         protect,
         f0_file=None,
+        extra_hooks={},
+        target_f0_mean=None
     ):
         if (
             file_index != ""
@@ -336,6 +439,8 @@ class Pipeline(object):
         t = None
         t1 = ttime()
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+        #sf.write('test_audio_pad.wav', audio_pad, samplerate=16000)
+
         p_len = audio_pad.shape[0] // self.window
         inp_f0 = None
         if hasattr(f0_file, "name"):
@@ -359,6 +464,7 @@ class Pipeline(object):
                 f0_method,
                 filter_radius,
                 inp_f0,
+                target_f0_mean=target_f0_mean
             )
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]
@@ -385,6 +491,7 @@ class Pipeline(object):
                         index_rate,
                         version,
                         protect,
+                        extra_hooks
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             else:
@@ -402,6 +509,7 @@ class Pipeline(object):
                         index_rate,
                         version,
                         protect,
+                        extra_hooks
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             s = t
@@ -420,6 +528,7 @@ class Pipeline(object):
                     index_rate,
                     version,
                     protect,
+                    extra_hooks
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         else:
@@ -437,11 +546,103 @@ class Pipeline(object):
                     index_rate,
                     version,
                     protect,
+                    extra_hooks
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         audio_opt = np.concatenate(audio_opt)
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
+        if tgt_sr != resample_sr >= 16000:
+            audio_opt = librosa.resample(
+                audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
+            )
+        audio_max = np.abs(audio_opt).max() / 0.99
+        max_int16 = 32768
+        if audio_max > 1:
+            max_int16 /= audio_max
+        audio_opt = (audio_opt * max_int16).astype(np.int16)
+        del pitch, pitchf, sid
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return audio_opt
+
+    def pipeline_tts(
+        self,
+        net_g,
+        sid,
+        infer_dict,
+        f0_up_key,
+        file_index,
+        index_rate,
+        if_f0,
+        filter_radius,
+        tgt_sr,
+        resample_sr,
+        version,
+        protect,
+        f0_file=None,
+        extra_hooks={},
+    ):
+        if (
+            file_index != ""
+            and os.path.exists(file_index)
+            and index_rate != 0
+        ):
+            try:
+                index = faiss.read_index(file_index)
+                big_npy = index.reconstruct_n(0, index.ntotal)
+            except:
+                traceback.print_exc()
+                index = big_npy = None
+        else:
+            index = big_npy = None
+        audio_opt = []
+        inp_f0 = None
+        if hasattr(f0_file, "name"):
+            try:
+                with open(f0_file.name, "r") as f:
+                    lines = f.read().strip("\n").split("\n")
+                inp_f0 = []
+                for line in lines:
+                    inp_f0.append([float(i) for i in line.split(",")])
+                inp_f0 = np.array(inp_f0, dtype="float32")
+            except:
+                traceback.print_exc()
+        sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
+        pitch, pitchf = None, None
+        if if_f0 == 1:
+            p_len = infer_dict["f0"].size(1)
+            pitch, pitchf = self.get_f0(
+                "",
+                infer_dict["f0"].numpy(),
+                p_len,
+                f0_up_key,
+                "forward",
+                filter_radius,
+                inp_f0,
+                target_f0_mean=target_pitch
+            )
+            pitch = pitch[:p_len]
+            pitchf = pitchf[:p_len]
+            if "mps" not in str(self.device) or "xpu" not in str(self.device):
+                pitchf = pitchf.astype(np.float32)
+            pitch = torch.tensor(pitch, device=self.device).long()
+            pitchf = torch.tensor(pitchf, device=self.device).float()
+        audio_opt.append(
+                self.vc_tts(
+                    net_g,
+                    sid,
+                    infer_dict,
+                    pitch,
+                    pitchf,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                )
+        )
+        audio_opt = np.concatenate(audio_opt)
         if tgt_sr != resample_sr >= 16000:
             audio_opt = librosa.resample(
                 audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
