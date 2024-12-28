@@ -26,3 +26,10 @@ rmvpe.pt
 /assets/weights/*
 ffmpeg.*
 ffprobe.*
+
+models
+recordings
+results
+assets/pretrained_titan
+inference_gui_rvc_persist.json
+*.bat
