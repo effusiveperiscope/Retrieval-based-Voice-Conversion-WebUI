@@ -4,7 +4,7 @@ SOURCE_DIRECTORY = r'D:\DataAugmentation\TITAN-Medium-Dataset'
 N_CPU = 16
 BATCH_SIZE = 16
 TOTAL_EPOCH = 1000
-SAVE_EVERY_EPOCH = 50
+SAVE_EVERY_EPOCH = 5
 
 import os 
 import subprocess
@@ -61,6 +61,16 @@ subprocess.run([
 print("Feature extraction done")
 
 # %%
+# Z-normalize features for numerical stability
+print("Z-normalizing features...")
+import numpy as np
+from tqdm import tqdm
+for feat in tqdm(os.listdir(os.path.join(exp_dir_abs, SSR_DIRNAME))):
+    f = np.load(os.path.join(exp_dir_abs, SSR_DIRNAME, feat))
+    np.save(os.path.join(exp_dir_abs, SSR_DIRNAME, feat), (f-np.mean(f))/np.std(f))
+print("Done")
+
+# %%
 # Calculate features for mute
 mute_dir = os.path.abspath(os.path.join('logs','mute'))
 subprocess.run([
@@ -81,6 +91,9 @@ subprocess.run([
     "facodec", # version
     "False", # is_half
 ], capture_output=True)
+for feat in tqdm(os.listdir(os.path.join(mute_dir, SSR_DIRNAME))):
+    f = np.load(os.path.join(mute_dir, SSR_DIRNAME, feat))
+    np.save(os.path.join(mute_dir, SSR_DIRNAME, feat), (f-np.mean(f))/np.std(f))
 
 # %%
 # Inspect shapes
@@ -93,6 +106,7 @@ print(f0[0])
 print(f0_example.shape)
 print(ssr[0])
 print(ssr_example.shape)
+print(f"ssr mean: {np.mean(ssr_example)}")
 
 # %%
 import numpy as np
