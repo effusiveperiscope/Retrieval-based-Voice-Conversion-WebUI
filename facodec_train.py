@@ -164,7 +164,7 @@ print(' '.join([
     # NO pretrained model, we are training a new base
     "-l","1",
     "-c","0", # 11hr data, do not cache
-    "-sw","0",
+    "-sw","1", # Save weights
     "-v","facodec"
 ]))
 # Avoid automatically doing this, will need to do it manually while we debug
