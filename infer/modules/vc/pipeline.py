@@ -19,6 +19,7 @@ import torch
 import torch.nn.functional as F
 import torchcrepe
 from scipy import signal
+from einops import rearrange
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -73,8 +74,8 @@ class Pipeline(object):
             config.x_max,
             config.is_half,
         )
-        self.sr = 16000  # hubert输入采样率
-        self.window = 160  # 每帧点数
+        self.sr = 16000  # facodec SR
+        self.window = 100  # hop length for facodec
         self.t_pad = self.sr * self.x_pad  # 每条前后pad时间
         self.t_pad_tgt = tgt_sr * self.x_pad
         self.t_pad2 = self.t_pad * 2
@@ -217,22 +218,19 @@ class Pipeline(object):
             if feats.dim() == 2:  # double channels
                 feats = feats.mean(-1)
             assert feats.dim() == 1, feats.dim()
-            feats = feats.view(1, -1)
-            padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
+            feats = feats.unsqueeze(0).unsqueeze(0)
 
-            #print(feats.shape)
-            inputs = {
-                "source": feats.to(self.device),
-                "padding_mask": padding_mask,
-                "output_layer": 9 if version == "v1" else 12,
-            }
+            facodec_model = model
             with torch.no_grad():
-                logits = model.extract_features(**inputs)
-                feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
-            if extra_hooks.get('feature_transform') is not None:
-                feature_transform = extra_hooks.get('feature_transform')
-                feats = feature_transform(feats)
-            del padding_mask
+                feats = feats.to(self.device)
+                feats = facodec_model.encoder(feats)
+                vq_post_emb, vq_id, _, quantized, spk_embs = facodec_model.decoder(
+                    feats)
+                content_code = vq_id[1:3]
+                feats = rearrange(content_code, 'c b t -> b t c')
+
+                feats = feats.to(torch.float32)
+                feats = (feats - feats.mean(dim=1, keepdim=True)) / feats.std(dim=1, keepdim=True)
         else:
             feature_override = extra_hooks.get('feature_override')
             feats = feature_override(feats).to(self.device) # Pass in the padded audio
@@ -292,7 +290,13 @@ class Pipeline(object):
         with torch.no_grad():
             hasp = pitch is not None and pitchf is not None
             arg = (feats, p_len, pitch, pitchf, sid) if hasp else (feats, p_len, sid)
+
             audio1 = (net_g.infer(*arg)[0][0, 0]).data.cpu().float().numpy()
+
+            from PyQt5.QtCore import pyqtRemoveInputHook
+            import pdb
+            pyqtRemoveInputHook()
+            pdb.set_trace()
             del hasp, arg
         del feats, p_len
         if torch.cuda.is_available():

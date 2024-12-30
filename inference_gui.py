@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (QWidget,
    QFrame, QFileDialog, QLineEdit, QSlider,
    QPushButton, QHBoxLayout, QVBoxLayout, QLabel,
    QPlainTextEdit, QComboBox, QGroupBox, QCheckBox, QShortcut, QDialog)
+from infer.modules.vc.utils import load_facodec
 
 
 now_dir = os.getcwd()
@@ -38,13 +39,12 @@ from infer.modules.vc.modules import VC
 from infer.modules.vc.pipeline import Pipeline
 from configs.config import Config
 config = Config()
-from infer.lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
-    SynthesizerTrnMs256NSFsid,
-    SynthesizerTrnMs768NSFsid_nono,
-    SynthesizerTrnMs256NSFsid_nono)
+from infer.lib.infer_pack.models import (
+    SynthesizerTrnMsFaCodecNSFsid
+)
 
-MODELS_DIR = "models"
-F0_METHODS = ['rmvpe',"crepe","harvest","pm"]
+MODELS_DIR = "models_facodec"
+F0_METHODS = ['rmvpe']
 RECORD_DIR = "./recordings"
 RECORD_SHORTCUT = "ctrl+shift+r"
 JSON_NAME = "inference_gui_rvc_persist.json"
@@ -577,8 +577,9 @@ class InferenceGui(QMainWindow):
         self.rvc_layout.addWidget(self.weights_box)
 
         self.model_state = {}
-        self.hubert_model = None
-        self.load_hubert()
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.facodec_model = None
+        self.load_facodec()
 
         self.load_persist()
         self.recent_dirs = deque(
@@ -827,8 +828,8 @@ class InferenceGui(QMainWindow):
             audio = load_audio(input_audio, 16000)
             print('from load ',len(audio))
             times = [0, 0, 0]
-            if self.hubert_model is None:
-                load_hubert()
+            if self.facodec_model is None:
+                self.load_facodec()
             if_f0 = self.model_state["cpt"].get("f0", 1) 
             if not len(self.feature_search_button.files):
                 file_index = ""
@@ -838,7 +839,7 @@ class InferenceGui(QMainWindow):
                 file_index = file_index.strip(" ").strip('"').strip("\n"
                     ).strip('"').strip(" ").replace("trained","added") 
             audio_opt = self.model_state["pipeline"].pipeline(
-                self.hubert_model, # model
+                self.facodec_model, # model
                 self.model_state["net_g"], # net_g
                 sid, # sid
                 audio, # audio
@@ -872,19 +873,8 @@ class InferenceGui(QMainWindow):
             print(info)
             return info, (None, None)
 
-    def load_hubert(self):
-        models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
-            ["hubert_base.pt"],
-            suffix="",
-        )
-        hubert_model = models[0]
-        hubert_model = hubert_model.to(config.device)
-        if config.is_half:
-            hubert_model = hubert_model.half()
-        else:
-            hubert_model = hubert_model.float()
-        hubert_model.eval()
-        self.hubert_model = hubert_model
+    def load_facodec(self):
+        self.facodec_model = load_facodec(config)
 
     def mean_transform(self, feats):
         mean_feature = self.model_state.get('mean_feature')
@@ -906,20 +896,8 @@ class InferenceGui(QMainWindow):
         if_f0 = cpt.get("f0", 1)
         version = cpt.get("version", "v1")
 
-        print("Detected version: "+version)
         cpt_channels = cpt["config"][4]
-        if version == "v1":
-            if if_f0 == 1:
-                net_g = SynthesizerTrnMs256NSFsid(*cpt["config"],
-                    is_half=config.is_half)
-            else:
-                net_g = SynthesizerTrnMs256NSFsid_nono(*cpt["config"])
-        elif version == "v2":
-            if if_f0 == 1:
-                net_g = SynthesizerTrnMs768NSFsid(*cpt["config"],
-                    is_half=config.is_half)
-            else:
-                net_g = SynthesizerTrnMs768NSFsid_nono(*cpt["config"])
+        net_g = SynthesizerTrnMsFaCodecNSFsid(*cpt["config"], is_half=config.is_half)
         del net_g.enc_q
         netg_print = net_g.load_state_dict(cpt["weight"], strict=False)
         print(netg_print)  

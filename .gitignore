@@ -33,3 +33,4 @@ results
 assets/pretrained_titan
 inference_gui_rvc_persist.json
 *.bat
+models_facodec
