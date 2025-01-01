@@ -21,3 +21,11 @@ rmvpe.pt
 
 # To set a Python version for the project
 .tool-versions
+
+models
+recordings
+results
+*.bat
+inference_gui*.json
+assets/pretrained_titan
+configs/inuse
