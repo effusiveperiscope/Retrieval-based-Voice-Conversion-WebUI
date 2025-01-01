@@ -211,10 +211,8 @@ class Pipeline(object):
         feats = torch.from_numpy(audio0)
         t0 = ttime()
         if extra_hooks.get('feature_override') is None:
-            if self.is_half:
-                feats = feats.half()
-            else:
-                feats = feats.float()
+            feats = feats.float() # Need 32 bit precision for FACodec always
+            # 16 bit is too temperamental
             if feats.dim() == 2:  # double channels
                 feats = feats.mean(-1)
             assert feats.dim() == 1, feats.dim()
@@ -230,10 +228,15 @@ class Pipeline(object):
                 feats = rearrange(content_code, 'c b t -> b t c')
 
                 feats = feats.to(torch.float32)
-                feats = (feats - feats.mean(dim=1, keepdim=True)) / feats.std(dim=1, keepdim=True)
+                feats = (feats - feats.mean()) / feats.std()
         else:
             feature_override = extra_hooks.get('feature_override')
             feats = feature_override(feats).to(self.device) # Pass in the padded audio
+
+        # from PyQt5.QtCore import pyqtRemoveInputHook
+        # import pdb
+        # pyqtRemoveInputHook()
+        # pdb.set_trace()
 
         if self.is_half:
             feats = feats.half()
@@ -286,6 +289,7 @@ class Pipeline(object):
             pitchff = pitchff.unsqueeze(-1)
             feats = feats * pitchff + feats0 * (1 - pitchff)
             feats = feats.to(feats0.dtype)
+
         p_len = torch.tensor([p_len], device=self.device).long()
         with torch.no_grad():
             hasp = pitch is not None and pitchf is not None
@@ -293,10 +297,6 @@ class Pipeline(object):
 
             audio1 = (net_g.infer(*arg)[0][0, 0]).data.cpu().float().numpy()
 
-            from PyQt5.QtCore import pyqtRemoveInputHook
-            import pdb
-            pyqtRemoveInputHook()
-            pdb.set_trace()
             del hasp, arg
         del feats, p_len
         if torch.cuda.is_available():

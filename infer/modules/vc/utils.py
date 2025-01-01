@@ -42,7 +42,7 @@ class FACodecModel:
     def __init__(self, config):
         if hasattr(config, "device"):
             self.device = config.device
-        elif config is dict:
+        elif type(config) is dict:
             self.device = config["device"]
         else:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -83,20 +83,9 @@ class FACodecModel:
         self.decoder.eval()
         self.encoder.to(self.device)
         self.decoder.to(self.device)
-        if hasattr(config, "is_half"):  
-            if config.is_half:
-                self.encoder = self.encoder.half()
-                self.decoder = self.decoder.half()
-            else:
-                self.encoder = self.encoder.float()
-                self.decoder = self.decoder.float()
-        elif config is dict:
-            if config["is_half"]:
-                self.encoder = self.encoder.half()
-                self.decoder = self.decoder.half()
-            else:
-                self.encoder = self.encoder.float()
-                self.decoder = self.decoder.float()
+        # Always use 32 bit regardless of config. Necessary for FACodec
+        self.encoder = self.encoder.float()
+        self.decoder = self.decoder.float()
 
 
 def load_facodec(config):

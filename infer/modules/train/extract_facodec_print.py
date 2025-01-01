@@ -133,8 +133,9 @@ else:
                     feats = content_code # [channels, batch, seq_len]
                     feats = rearrange(feats, 'c b t -> b t c')
 
+                feats = feats.to(torch.float32)
+                feats = (feats - feats.mean()) / feats.std()
                 feats = feats.squeeze(0).float().cpu().numpy()
-                feats = (feats - np.mean(feats)) / np.std(feats) # z-score
                 if np.isnan(feats).sum() == 0:
                     np.save(out_path, feats, allow_pickle=False)
                 else:
