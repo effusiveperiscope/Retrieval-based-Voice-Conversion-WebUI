@@ -40,7 +40,10 @@ import torch
 # FACodec model
 class FACodecModel:
     def __init__(self, config):
-        self.device = config.device
+        if hasattr(config, "device"):
+            self.device = config.device
+        else:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.encoder = FACodecEncoder(
             ngf=32,
             up_ratios=[2, 4, 5, 5],
