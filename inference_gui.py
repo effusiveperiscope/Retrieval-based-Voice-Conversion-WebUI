@@ -32,6 +32,7 @@ now_dir = os.getcwd()
 sys.path.append(now_dir)
 os.makedirs(os.path.join(now_dir, "logs"), exist_ok=True)
 os.makedirs(os.path.join(now_dir, "weights"), exist_ok=True)
+os.environ['rmvpe_root'] = os.path.join(now_dir, 'assets', 'rmvpe')
 
 from infer.lib.audio import load_audio
 from infer.modules.vc.modules import VC
@@ -44,7 +45,7 @@ from infer.lib.infer_pack.models import (SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs256NSFsid_nono)
 
 MODELS_DIR = "models"
-F0_METHODS = ["crepe","harvest","pm","rmvpe"]
+F0_METHODS = ["rmvpe","crepe","harvest","pm"]
 RECORD_DIR = "./recordings"
 RECORD_SHORTCUT = "ctrl+shift+r"
 JSON_NAME = "inference_gui_rvc_persist.json"
