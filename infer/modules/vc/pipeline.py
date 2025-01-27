@@ -206,18 +206,10 @@ class Pipeline(object):
         if feats.dim() == 2:  # double channels
             feats = feats.mean(-1)
         assert feats.dim() == 1, feats.dim()
-        feats = feats.view(1, -1)
-        padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
 
-        inputs = {
-            "source": feats.to(self.device),
-            "padding_mask": padding_mask,
-            "output_layer": 9 if version == "v1" else 12,
-        }
         t0 = ttime()
         with torch.no_grad():
-            logits = model.extract_features(**inputs)
-            feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
+            feats = model.extract_features(feats).unsqueeze(0).to(self.device)
         if protect < 0.5 and pitch is not None and pitchf is not None:
             feats0 = feats.clone()
         if (
@@ -268,9 +260,10 @@ class Pipeline(object):
         with torch.no_grad():
             hasp = pitch is not None and pitchf is not None
             arg = (feats, p_len, pitch, pitchf, sid) if hasp else (feats, p_len, sid)
+
             audio1 = (net_g.infer(*arg)[0][0, 0]).data.cpu().float().numpy()
             del hasp, arg
-        del feats, p_len, padding_mask
+        del feats, p_len
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         t2 = ttime()

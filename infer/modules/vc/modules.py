@@ -10,11 +10,9 @@ from io import BytesIO
 
 from infer.lib.audio import load_audio, wav2
 from infer.lib.infer_pack.models import (
-    SynthesizerTrnMs256NSFsid,
-    SynthesizerTrnMs256NSFsid_nono,
-    SynthesizerTrnMs768NSFsid,
-    SynthesizerTrnMs768NSFsid_nono,
+    SynthesizerTrnMsWhisperNSFsid
 )
+from svc_helper.sfeatures.models import SVC5WhisperModel
 from infer.modules.vc.pipeline import Pipeline
 from infer.modules.vc.utils import *
 
@@ -29,7 +27,7 @@ class VC:
         self.version = None
         self.if_f0 = None
         self.version = None
-        self.hubert_model = None
+        self.whisper_model = None
 
         self.config = config
 
@@ -52,31 +50,20 @@ class VC:
         }
 
         if sid == "" or sid == []:
-            if self.hubert_model is not None:  # 考虑到轮询, 需要加个判断看是否 sid 是由有模型切换到无模型的
+            if self.whisper_model is not None:  # 考虑到轮询, 需要加个判断看是否 sid 是由有模型切换到无模型的
                 logger.info("Clean model cache")
-                del (self.net_g, self.n_spk, self.hubert_model, self.tgt_sr)  # ,cpt
-                self.hubert_model = (
+                del (self.net_g, self.n_spk, self.whisper_model, self.tgt_sr)  # ,cpt
+                self.whisper_model = (
                     self.net_g
-                ) = self.n_spk = self.hubert_model = self.tgt_sr = None
+                ) = self.n_spk = self.whisper_model = self.tgt_sr = None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 ###楼下不这么折腾清理不干净
                 self.if_f0 = self.cpt.get("f0", 1)
                 self.version = self.cpt.get("version", "v1")
-                if self.version == "v1":
-                    if self.if_f0 == 1:
-                        self.net_g = SynthesizerTrnMs256NSFsid(
-                            *self.cpt["config"], is_half=self.config.is_half
-                        )
-                    else:
-                        self.net_g = SynthesizerTrnMs256NSFsid_nono(*self.cpt["config"])
-                elif self.version == "v2":
-                    if self.if_f0 == 1:
-                        self.net_g = SynthesizerTrnMs768NSFsid(
-                            *self.cpt["config"], is_half=self.config.is_half
-                        )
-                    else:
-                        self.net_g = SynthesizerTrnMs768NSFsid_nono(*self.cpt["config"])
+
+                self.net_g = SynthesizerTrnMsWhisperNSFsid(
+                    *self.cpt["config"], is_half=self.config.is_half)
                 del self.net_g, self.cpt
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -104,16 +91,8 @@ class VC:
         self.if_f0 = self.cpt.get("f0", 1)
         self.version = self.cpt.get("version", "v1")
 
-        synthesizer_class = {
-            ("v1", 1): SynthesizerTrnMs256NSFsid,
-            ("v1", 0): SynthesizerTrnMs256NSFsid_nono,
-            ("v2", 1): SynthesizerTrnMs768NSFsid,
-            ("v2", 0): SynthesizerTrnMs768NSFsid_nono,
-        }
-
-        self.net_g = synthesizer_class.get(
-            (self.version, self.if_f0), SynthesizerTrnMs256NSFsid
-        )(*self.cpt["config"], is_half=self.config.is_half)
+        self.net_g = SynthesizerTrnMsWhisperNSFsid(
+            *self.cpt["config"], is_half=self.config.is_half)
 
         del self.net_g.enc_q
 
@@ -166,8 +145,8 @@ class VC:
                 audio /= audio_max
             times = [0, 0, 0]
 
-            if self.hubert_model is None:
-                self.hubert_model = load_hubert(self.config)
+            if self.whisper_model is None:
+                self.whisper_model = SVC5WhisperModel(is_half=self.config.is_half)
 
             file_index = (
                 (
@@ -183,7 +162,7 @@ class VC:
             )  # 防止小白写错，自动帮他替换掉
 
             audio_opt = self.pipeline.pipeline(
-                self.hubert_model,
+                self.whisper_model,
                 self.net_g,
                 sid,
                 audio,
