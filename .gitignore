@@ -29,3 +29,4 @@ results
 inference_gui*.json
 assets/pretrained_titan
 configs/inuse
+models_whisper*
