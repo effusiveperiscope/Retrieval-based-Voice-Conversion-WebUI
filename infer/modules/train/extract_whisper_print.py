@@ -71,7 +71,7 @@ def readwave(wav_path, normalize=False):
 
 
 # Whisper model
-whisper = SVC5WhisperModel()
+whisper = SVC5WhisperModel(device = device)
 
 todo = sorted(list(os.listdir(wavPath)))[i_part::n_part]
 n = max(1, len(todo) // 10)  # 最多打印十条
