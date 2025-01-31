@@ -6,7 +6,7 @@ SOURCE_DIRECTORY = r'D:\DataAugmentation\TITAN-Medium-Dataset'
 N_CPU = 16
 BATCH_SIZE = 16
 TOTAL_EPOCH = 1000
-SAVE_EVERY_EPOCH = 5
+SAVE_EVERY_EPOCH = 10
 
 import os 
 import subprocess
