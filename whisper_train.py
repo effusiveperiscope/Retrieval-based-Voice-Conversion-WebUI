@@ -1,12 +1,12 @@
 # %%
-CHARACTER_NAME = 'WhisperBase'
-SOURCE_DIRECTORY = r'D:\DataAugmentation\TITAN-Medium-Dataset'
+CHARACTER_NAME = 'RarityS1-S3'
+SOURCE_DIRECTORY = r'D:\DataAugmentation\RarityS1-S3'
 # Small dataset for testing
 #SOURCE_DIRECTORY = r'D:\DataAugmentation\TestTwilight'
 N_CPU = 16
 BATCH_SIZE = 16
 TOTAL_EPOCH = 1000
-SAVE_EVERY_EPOCH = 10
+SAVE_EVERY_EPOCH = 50
 
 import os 
 import subprocess
@@ -149,8 +149,10 @@ print(' '.join([
     "-g","0", # GPU index to use
     "-te",str(TOTAL_EPOCH),
     "-se",str(SAVE_EVERY_EPOCH),
-    # NO pretrained model, we are training a new base
-    "-l","1",
+    # lol the descriptions for these args are reversed in the code
+    "-pg","assets/pretrained_whisper/f0G48k.pth",
+    "-pd","assets/pretrained_whisper/f0D48k.pth", 
+    "-l","0",
     "-c","0", # 11hr data, do not cache
     "-sw","1",
     "-v","whisper"

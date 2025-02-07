@@ -184,14 +184,12 @@ def run(
         hps.train.learning_rate,
         betas=hps.train.betas,
         eps=hps.train.eps,
-        weight_decay=1e-3,
     )
     optim_d = torch.optim.AdamW(
         net_d.parameters(),
         hps.train.learning_rate,
         betas=hps.train.betas,
         eps=hps.train.eps,
-        weight_decay=1e-3,
     )
     # net_g = DDP(net_g, device_ids=[rank], find_unused_parameters=True)
     # net_d = DDP(net_d, device_ids=[rank], find_unused_parameters=True)
@@ -479,8 +477,8 @@ def train_and_evaluate(
         optim_d.zero_grad()
         scaler.scale(loss_disc).backward()
         scaler.unscale_(optim_d)
-        # Try gradient clipping 
-        grad_norm_d = torch.nn.utils.clip_grad_norm_(net_d.parameters(), max_norm=1)
+        #grad_norm_d = torch.nn.utils.clip_grad_norm_(net_d.parameters(), max_norm=10)
+        grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
         scaler.step(optim_d)
 
         with autocast(enabled=hps.train.fp16_run):
@@ -495,7 +493,8 @@ def train_and_evaluate(
         optim_g.zero_grad()
         scaler.scale(loss_gen_all).backward()
         scaler.unscale_(optim_g)
-        grad_norm_g = torch.nn.utils.clip_grad_norm_(net_g.parameters(), max_norm=1)
+        #grad_norm_g = torch.nn.utils.clip_grad_norm_(net_g.parameters(), max_norm=10)
+        grad_norm_g = commons.clip_grad_value_(net_g.parameters(), None)
         scaler.step(optim_g)
         scaler.update()
 
