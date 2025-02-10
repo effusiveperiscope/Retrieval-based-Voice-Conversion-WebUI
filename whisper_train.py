@@ -1,12 +1,14 @@
 # %%
-CHARACTER_NAME = 'RarityS1-S3'
-SOURCE_DIRECTORY = r'D:\DataAugmentation\RarityS1-S3'
+# I think that training on a single speaker makes a lot more sense than whatever
+# we were trying to do earlier
+CHARACTER_NAME = 'Twilight'
+SOURCE_DIRECTORY = r'D:\DataAugmentation\Twilight'
 # Small dataset for testing
 #SOURCE_DIRECTORY = r'D:\DataAugmentation\TestTwilight'
 N_CPU = 16
-BATCH_SIZE = 16
+BATCH_SIZE = 12
 TOTAL_EPOCH = 1000
-SAVE_EVERY_EPOCH = 50
+SAVE_EVERY_EPOCH = 10
 
 import os 
 import subprocess
@@ -153,8 +155,8 @@ print(' '.join([
     "-pg","assets/pretrained_whisper/f0G48k.pth",
     "-pd","assets/pretrained_whisper/f0D48k.pth", 
     "-l","0",
-    "-c","0", # 11hr data, do not cache
-    "-sw","1",
+    "-c","0", # do not cache
+    "-sw","0", # do not save intermediate weights
     "-v","whisper"
 ]))
 # %%
