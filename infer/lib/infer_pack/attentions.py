@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.utils.parametrizations import weight_norm
 
 from infer.lib.infer_pack import commons, modules
 from infer.lib.infer_pack.modules import LayerNorm
@@ -191,9 +192,9 @@ class MultiHeadAttention(nn.Module):
         self.attn = None
 
         self.k_channels = channels // n_heads
-        self.conv_q = nn.Conv1d(channels, channels, 1)
-        self.conv_k = nn.Conv1d(channels, channels, 1)
-        self.conv_v = nn.Conv1d(channels, channels, 1)
+        self.conv_q = weight_norm(nn.Conv1d(channels, channels, 1))
+        self.conv_k = weight_norm(nn.Conv1d(channels, channels, 1))
+        self.conv_v = weight_norm(nn.Conv1d(channels, channels, 1))
         self.conv_o = nn.Conv1d(channels, out_channels, 1)
         self.drop = nn.Dropout(p_dropout)
 
@@ -209,9 +210,9 @@ class MultiHeadAttention(nn.Module):
                 * rel_stddev
             )
 
-        nn.init.xavier_uniform_(self.conv_q.weight)
-        nn.init.xavier_uniform_(self.conv_k.weight)
-        nn.init.xavier_uniform_(self.conv_v.weight)
+        nn.init.kaiming_normal_(self.conv_q.weight, nonlinearity='linear')
+        nn.init.kaiming_normal_(self.conv_k.weight, nonlinearity='linear')
+        nn.init.kaiming_normal_(self.conv_v.weight, nonlinearity='linear')
         if proximal_init:
             with torch.no_grad():
                 self.conv_k.weight.copy_(self.conv_q.weight)
@@ -410,8 +411,12 @@ class FFN(nn.Module):
         # else:
         #     self.padding = self._same_padding
 
-        self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size)
-        self.conv_2 = nn.Conv1d(filter_channels, out_channels, kernel_size)
+        self.conv_1 = weight_norm(nn.Conv1d(in_channels, filter_channels, kernel_size))
+        self.conv_2 = weight_norm(nn.Conv1d(filter_channels, out_channels, kernel_size))
+        
+        nn.init.kaiming_normal_(self.conv_1.weight, nonlinearity="linear")
+        nn.init.kaiming_normal_(self.conv_2.weight, nonlinearity="linear")
+
         self.drop = nn.Dropout(p_dropout)
 
     def padding(self, x: torch.Tensor, x_mask: torch.Tensor) -> torch.Tensor:

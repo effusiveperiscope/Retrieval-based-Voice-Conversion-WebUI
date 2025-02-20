@@ -270,7 +270,7 @@ class PosteriorEncoder(nn.Module):
         self.n_layers = n_layers
         self.gin_channels = gin_channels
 
-        self.pre = nn.Conv1d(in_channels, hidden_channels, 1)
+        self.pre = weight_norm(nn.Conv1d(in_channels, hidden_channels, 1))
         self.enc = modules.WN(
             hidden_channels,
             kernel_size,
@@ -578,9 +578,9 @@ class GeneratorNSF(torch.nn.Module):
             sampling_rate=sr, harmonic_num=0, is_half=is_half
         )
         self.noise_convs = nn.ModuleList()
-        self.conv_pre = Conv1d(
+        self.conv_pre = weight_norm(Conv1d(
             initial_channel, upsample_initial_channel, 7, 1, padding=3
-        )
+        ))
         resblock = modules.ResBlock1 if resblock == "1" else modules.ResBlock2
 
         self.ups = nn.ModuleList()

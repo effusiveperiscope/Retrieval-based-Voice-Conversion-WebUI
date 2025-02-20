@@ -17,6 +17,7 @@ n_gpus = len(hps.gpus.split("-"))
 from random import randint, shuffle
 
 import torch
+import torch.nn as nn
 
 try:
     import intel_extension_for_pytorch as ipex  # pylint: disable=import-error, unused-import
@@ -98,16 +99,19 @@ def main():
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
     children = []
-    for i in range(n_gpus):
-        subproc = mp.Process(
-            target=run,
-            args=(i, n_gpus, hps),
-        )
-        children.append(subproc)
-        subproc.start()
+    if n_gpus > 1:
+        for i in range(n_gpus):
+            subproc = mp.Process(
+                target=run,
+                args=(i, n_gpus, hps),
+            )
+            children.append(subproc)
+            subproc.start()
 
-    for i in range(n_gpus):
-        children[i].join()
+        for i in range(n_gpus):
+            children[i].join()
+    else:
+        run(0, n_gpus, hps) # allow pdb etc
 
 
 def run(
@@ -201,6 +205,28 @@ def run(
     else:
         net_g = DDP(net_g)
         net_d = DDP(net_d)
+
+
+    # Function to track activations with full module names
+    # def activation_monitor_hook(module, input, output, module_name):
+        # max_val = output.abs().max().item()
+        # if max_val > 10:  # Set threshold
+            # print(f"High activation in {module_name} ({module}): max value = {max_val}")
+# 
+    # for name, layer in net_g.named_modules():
+        # if isinstance(layer, (nn.Linear, nn.Conv2d, nn.Conv1d)):  # Track specific layer types
+            # layer.register_forward_hook(lambda m, i, o, n=name: activation_monitor_hook(m, i, o, n))
+
+   #  max_fp16 = torch.finfo(torch.float16).max  # 65504.0
+   #  min_fp16 = torch.finfo(torch.float16).min
+   #  # https://medium.com/@jbensnyder/solving-the-limits-of-mixed-precision-training-231019128b4b
+   #  # Clamp values for mixed precision training
+   #  def clamp_activation_hook(module, input, output):
+   #      return output.clamp(min=min_fp16, max=max_fp16)
+   #  for name, layer in net_g.named_modules():
+   #      layer.register_forward_hook(clamp_activation_hook)
+   #  for name, layer in net_d.named_modules():
+   #      layer.register_forward_hook(clamp_activation_hook)
 
     try:  # 如果能加载自动resume
         _, _, _, epoch_str = utils.load_checkpoint(
@@ -440,6 +466,8 @@ def train_and_evaluate(
                     z_mask,
                     (z, z_p, m_p, logs_p, m_q, logs_q),
                 ) = net_g(phone, phone_lengths, spec, spec_lengths, sid)
+            # import pdb
+            # pdb.set_trace()
             mel = spec_to_mel_torch(
                 spec,
                 hps.data.filter_length,

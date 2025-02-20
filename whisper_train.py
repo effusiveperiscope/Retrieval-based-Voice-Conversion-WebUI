@@ -1,8 +1,8 @@
 # %%
 # I think that training on a single speaker makes a lot more sense than whatever
 # we were trying to do earlier
-CHARACTER_NAME = 'Twilight'
-SOURCE_DIRECTORY = r'D:\DataAugmentation\Twilight'
+CHARACTER_NAME = 'VCTKWhisperBase'
+SOURCE_DIRECTORY = r'D:\DataAugmentation\VCTK-Corpus-0.92\wav48_silence_trimmed'
 # Small dataset for testing
 #SOURCE_DIRECTORY = r'D:\DataAugmentation\TestTwilight'
 N_CPU = 16
@@ -152,11 +152,11 @@ print(' '.join([
     "-te",str(TOTAL_EPOCH),
     "-se",str(SAVE_EVERY_EPOCH),
     # lol the descriptions for these args are reversed in the code
-    "-pg","assets/pretrained_whisper/f0G48k.pth",
-    "-pd","assets/pretrained_whisper/f0D48k.pth", 
+    #"-pg","assets/pretrained_whisper/f0G48k.pth",
+    #"-pd","assets/pretrained_whisper/f0D48k.pth", 
     "-l","0",
     "-c","0", # do not cache
-    "-sw","0", # do not save intermediate weights
+    "-sw","1", 
     "-v","whisper"
 ]))
 # %%

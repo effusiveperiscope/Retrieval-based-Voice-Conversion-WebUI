@@ -173,6 +173,7 @@ class WN(torch.nn.Module):
                 padding=padding,
             )
             in_layer = torch.nn.utils.weight_norm(in_layer, name="weight")
+            nn.init.kaiming_normal_(in_layer.weight, nonlinearity="linear")
             self.in_layers.append(in_layer)
 
             # last one is not necessary
