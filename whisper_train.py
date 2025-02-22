@@ -99,12 +99,24 @@ print(ssr[0])
 print(ssr_example.shape)
 
 # %%
+
 import numpy as np
 print("Generating filelist...")
+spk_lbls_dir = os.path.join(exp_dir_abs, "0_spk_lbls")
 gt_wavs_dir = os.path.join(exp_dir_abs, "0_gt_wavs")
 feature_dir = os.path.join(exp_dir_abs, SSR_DIRNAME)
 f0_dir = os.path.join(exp_dir_abs, "2a_f0")
 f0nsf_dir = os.path.join(exp_dir_abs, "2b-f0nsf")
+
+sids = set()
+def grab_sid(name):
+    if not os.path.exists(spk_lbls_dir):
+        sids.add(0)
+        return 0
+    with open(os.path.join(spk_lbs_dir.replace("\\","/"), name+".txt"), "r") as f:
+        sids.add(name)
+        return int(f.read())
+
 names = (
     set([name.split(".")[0] for name in os.listdir(gt_wavs_dir)])
     & set([name.split(".")[0] for name in os.listdir(feature_dir)])
@@ -119,16 +131,16 @@ for name in names:
         os.path.join(feature_dir.replace("\\","/"),name)+".npy|"+
         os.path.join(f0_dir.replace("\\","/"),name)+".wav.npy|"+
         os.path.join(f0nsf_dir.replace("\\","/"),name)+".wav.npy|"+
-        "0") # speaker ID which is always 0 because we have only 1 spk
+        grab_sid(name)) # speaker ID which is always 0 because we have only 1 spk
 
 # INTERESTING - they put mute items into the filelist randomly
-for _ in range(2):
+for i in range(len(sids) + 1):
     opt.append(
         os.path.join(base_dir,"logs","mute","0_gt_wavs","mute48k.wav")+"|"+
         os.path.join(base_dir,"logs","mute",SSR_DIRNAME,"mute.npy")+"|"+
         os.path.join(base_dir,"logs","mute","2a_f0","mute.wav.npy")+"|"+
         os.path.join(base_dir,"logs","mute","2b-f0nsf","mute.wav.npy")+"|"+
-        "0")
+        i) # All speakers should be capable of generating silence
 np.random.shuffle(opt)
 with open(os.path.join(exp_dir_abs,"filelist.txt"),"w") as f:
     f.write("\n".join(opt))
